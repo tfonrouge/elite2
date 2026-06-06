@@ -1,0 +1,42 @@
+[package]
+name = "elite"
+version = "0.0.0"
+edition = "2024"
+description = "A cross-platform remake of the 1984 space trading/combat game Elite, built in Rust with Bevy."
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+# Bevy is pinned to an EXACT version on purpose. Bevy's API changes between
+# releases, so a version bump is a deliberate decision with migration work —
+# never let this drift casually. See CLAUDE.md / DESIGN.md.
+bevy = "=0.18.1"
+
+[features]
+# Faster iterative dev builds via Bevy's dynamic linking. Not enabled by
+# default because it complicates distribution. Use: `cargo run --features dev`.
+dev = ["bevy/dynamic_linking"]
+
+# --- Build profiles -------------------------------------------------------
+# Bevy compiles a large dependency tree. These profiles keep iteration fast:
+# our own crate builds with light optimization while dependencies (Bevy, wgpu,
+# etc.) are fully optimized so the game runs at a usable framerate in dev.
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# Release builds tuned for distribution: smaller, faster binaries.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+# Canonical Bevy exceptions: ECS systems naturally take many parameters and
+# queries produce complex types. These lints fight the engine's idioms.
+too_many_arguments = "allow"
+type_complexity = "allow"

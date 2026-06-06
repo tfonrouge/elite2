@@ -1,0 +1,6 @@
+# Everyone (and CI) builds with the latest stable toolchain plus the
+# components we lint/format with. This keeps `cargo fmt` / `cargo clippy`
+# reproducible across machines.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

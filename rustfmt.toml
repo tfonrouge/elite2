@@ -1,0 +1,3 @@
+# Formatting is the default rustfmt style; we pin the edition so running
+# `rustfmt` directly (outside `cargo fmt`) formats with the right edition.
+edition = "2024"

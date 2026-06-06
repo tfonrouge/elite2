@@ -1,0 +1,16 @@
+# Rust build artifacts
+/target
+
+# Cargo.lock IS committed: this is an application, so we want fully
+# reproducible builds. (Do not ignore it.)
+
+# Editor / OS cruft
+*.rs.bk
+*.pdb
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Machine-specific Claude context (see CLAUDE.local.md)
+/CLAUDE.local.md
