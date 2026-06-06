@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Fast feedback: formatting + lints run once on Linux and gate the matrix.
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies (alsa, udev)
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev
+
+      - name: Install Rust toolchain (stable + rustfmt + clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy (deny warnings)
+        run: cargo clippy --all-targets -- -D warnings
+
+  # Build + test on all three first-class desktop platforms.
+  build:
+    name: build + test (${{ matrix.os }})
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            bin: elite
+          - os: macos-latest
+            bin: elite
+          - os: windows-latest
+            bin: elite.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies (alsa, udev)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo build
+        run: cargo build --verbose
+
+      - name: cargo test
+        run: cargo test --verbose
+
+      # Produce a per-platform release artifact. Not enabling Bevy's `dev`
+      # (dynamic linking) feature here — release builds are statically linked.
+      - name: cargo build --release
+        run: cargo build --release --verbose
+
+      - name: Upload ${{ matrix.os }} artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: elite-${{ runner.os }}
+          path: target/release/${{ matrix.bin }}
+          if-no-files-found: error
+
+# TODO (Phase 6+ / distribution): macOS code-signing + notarization.
+#   The macOS release binary above is UNSIGNED. For distribution it must be
+#   signed with a Developer ID certificate and notarized via `notarytool`,
+#   which requires Apple Developer credentials stored as encrypted secrets.
+#   Tracked as a later task — intentionally not implemented yet.
