@@ -24,11 +24,18 @@ progression, and combat/legal ranking. The sandbox is the game; no forced story.
 
 Current modules:
 
-| Module            | Plugin         | Responsibility                                  |
-| ----------------- | -------------- | ----------------------------------------------- |
-| `plugins/core`    | `CorePlugin`   | App-wide config (clear color; later: states)    |
-| `plugins/camera`  | `CameraPlugin` | The 3D camera (fixed now; ship-follow in P1)    |
-| `plugins/world`   | `WorldPlugin`  | Placeholder lit scene (replaced from P1)        |
+| Module              | Plugin            | Responsibility                                          |
+| ------------------- | ----------------- | ------------------------------------------------------- |
+| `plugins/core`      | `CorePlugin`      | App-wide config (clear color; later: states)            |
+| `plugins/flight`    | `FlightPlugin`    | Player ship, `FlightConfig`, damped-arcade flight model |
+| `plugins/camera`    | `CameraPlugin`    | First-person cockpit camera (child of the ship)         |
+| `plugins/world`     | `WorldPlugin`     | Lighting + reference objects (ring station, asteroids)  |
+| `plugins/starfield` | `StarfieldPlugin` | Procedural starfield that tracks the player             |
+| `plugins/hud`       | `HudPlugin`       | Minimal flight HUD (speed, throttle, orientation)       |
+
+Cross-plugin sharing is limited to small marker/data types: `camera`, `hud`,
+and `starfield` reference `flight::{Player, Ship, FlightConfig}`. The cockpit
+camera mounts in `PostStartup` so the ship (spawned in `Startup`) already exists.
 
 ## Decision log
 
@@ -47,15 +54,22 @@ Current modules:
 - **Phase 0 visible scene:** a single lit cube, deliberately, to prove the 3D
   render pipeline (mesh + material + light + camera) works end-to-end. It is a
   placeholder, not gameplay.
+- **Flight model = damped arcade** (Phase 1, decided). Throttle sets a target
+  speed the ship accelerates toward; angular velocity ramps toward input and
+  damps to zero on release (auto-stabilize). Frame-rate independent. A Newtonian
+  / flight-assist-off mode is a possible later toggle.
+- **Camera = first-person cockpit** (Phase 1, decided). Mounted as a child of
+  the ship so transform propagation handles the follow; no per-frame sync.
+- **Controls (Phase 1):** keyboard — W/S pitch, A/D yaw, Q/E roll, R/F throttle.
+  Verified against Bevy's rotation math (W = nose down, A = yaw left, Q = roll
+  left). Mouse/gamepad and an invert-pitch option are later additions.
+- **Starfield approach:** stars on a Fibonacci-lattice sphere shell, parented to
+  a root that tracks the player's *translation only*. Result: no translation
+  parallax (distant-star feel) but rotation reads clearly. Deterministic, no RNG
+  crate.
 
 ### Decisions still open (raise before committing)
 
-- **Flight model (Phase 1):** arcade vs. Newtonian (or a damped hybrid).
-  *Recommendation:* start with a damped/arcade model with a capped top speed and
-  responsive rotation — closest to the original's feel and easy to fly — and
-  revisit Newtonian later if desired.
-- **Camera (Phase 1):** cockpit vs. chase. *Recommendation:* chase cam first
-  (easier to make motion legible in 3D), with cockpit as a later option.
 - **Procedural seed scheme (Phase 3):** how galaxy generation is seeded and made
   deterministic.
 - **Save format (Phase 6):** serialization approach for player + universe state.
@@ -64,13 +78,14 @@ Current modules:
 
 Ordered milestones (may be reprioritized).
 
-- **Phase 0 — Foundations** ✅ *(current)*
+- **Phase 0 — Foundations** ✅
   Cargo project, pinned Bevy, plugin skeleton, a window that opens and renders,
   cross-platform CI with per-platform artifacts, README/DESIGN/CLAUDE docs.
-- **Phase 1 — Flight vertical slice**
-  Controllable ship in 3D (thrust/pitch/yaw/roll), follow camera, starfield +
-  reference objects (asteroid, station placeholder), minimal HUD (speed,
-  orientation).
+- **Phase 1 — Flight vertical slice** ✅ *(current)*
+  Controllable ship in 3D (thrust/pitch/yaw/roll, damped-arcade model),
+  first-person cockpit camera, procedural starfield + reference objects (ring
+  station, asteroids), minimal HUD (speed, throttle, orientation). Pure-logic
+  unit tests for the flight/starfield math.
 - **Phase 2 — Combat**
   Weapons (projectile/hitscan), targeting, basic enemy AI (approach/attack/
   evade), shields + hull, destruction.
@@ -91,7 +106,13 @@ Ordered milestones (may be reprioritized).
 
 ## Follow-ups / TODO
 
+- **Hands-on flight tuning:** the control *directions* are verified against
+  Bevy's rotation math, but the *feel* (rates, damping, top speed in
+  `FlightConfig`) needs a human at the keyboard — it can't be tested headlessly.
+- Optional flight polish: mouse/gamepad input, an invert-pitch toggle, a
+  "full stop" / "match speed" key, and a velocity vector marker on the HUD.
+- Visual polish: HDR camera + bloom so emissive stars/objects glow; a real
+  cockpit frame overlay; lower-poly or instanced stars if the field ever grows.
 - macOS code-signing + notarization for distributable builds (CI produces an
   unsigned macOS binary today).
 - Decide whether to invest in a WebAssembly build target.
-- Add unit tests as systems with real logic appear (none meaningful in Phase 0).

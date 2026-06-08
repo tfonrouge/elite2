@@ -38,16 +38,19 @@ src/
   main.rs          # thin: window config + the list of plugins, nothing else
   plugins/
     mod.rs         # declares the plugin modules
-    core.rs        # CorePlugin   — app-wide config (clear color; later: states)
-    camera.rs      # CameraPlugin — the 3D camera
-    world.rs       # WorldPlugin  — placeholder lit scene (replaced from Phase 1)
+    core.rs        # CorePlugin      — app-wide config (clear color; later: states)
+    flight.rs      # FlightPlugin    — player ship + damped-arcade flight model
+    camera.rs      # CameraPlugin    — first-person cockpit camera (child of ship)
+    world.rs       # WorldPlugin     — lighting + reference objects
+    starfield.rs   # StarfieldPlugin — procedural starfield
+    hud.rs         # HudPlugin       — minimal flight HUD
 assets/            # runtime assets (Bevy AssetServer root)
 .github/workflows/ # cross-platform CI (Windows/macOS/Linux), per-OS artifacts
 ```
 
 New systems get a new `plugins/<system>.rs` and a line in `main`. Future
-systems (per the roadmap): `flight`, `combat`, `galaxy`/`universe`, `economy`,
-`station`, `progression`, `ui`/`hud`.
+systems (per the roadmap): `combat`, `galaxy`/`universe`, `economy`,
+`station`, `progression`.
 
 ## Cross-platform notes
 

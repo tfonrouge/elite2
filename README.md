@@ -9,9 +9,9 @@ trade, fight, mine, or explore. Modern 3D rendering, faithful to the original's
 systems — procedural galaxy, supply/demand economy, real-time combat, ship
 progression, and combat/legal ranks. No forced story.
 
-> **Status:** Phase 0 (foundations) complete — the app opens a window and
-> renders a placeholder 3D scene. See [`DESIGN.md`](DESIGN.md) for the roadmap
-> and current phase.
+> **Status:** Phase 1 (flight slice) complete — fly a ship from a first-person
+> cockpit through a starfield past a ring station and asteroids, with a live
+> HUD. See [`DESIGN.md`](DESIGN.md) for the roadmap and current phase.
 
 ## Prerequisites
 
@@ -43,8 +43,21 @@ cargo build          # build only
 cargo build --release
 ```
 
-A window titled **"Elite"** opens showing a lit reference cube against a
-deep-space background. Close the window to exit.
+A window titled **"Elite"** opens into a first-person cockpit. Ahead is a slowly
+rotating ring station with asteroids scattered nearby, all set against a
+procedural starfield, with a flight HUD in the top-left. Close the window to exit.
+
+### Controls
+
+| Keys  | Action            |
+| ----- | ----------------- |
+| W / S | Pitch (nose down / up) |
+| A / D | Yaw (left / right) |
+| Q / E | Roll (left / right) |
+| R / F | Throttle (increase / decrease) |
+
+The flight model is **damped arcade**: throttle sets a target speed the ship
+eases toward, and rotation self-stabilizes when you release the keys.
 
 ### Faster iteration during development
 
@@ -75,9 +88,12 @@ src/
 ├── main.rs            # thin entry point: window config + the list of plugins
 └── plugins/           # one Bevy Plugin per game system
     ├── mod.rs
-    ├── core.rs        # CorePlugin   — app-wide config (clear color, ...)
-    ├── camera.rs      # CameraPlugin — the 3D camera
-    └── world.rs       # WorldPlugin  — placeholder scene (replaced in Phase 1)
+    ├── core.rs        # CorePlugin      — app-wide config (clear color, ...)
+    ├── flight.rs      # FlightPlugin    — player ship + damped-arcade flight model
+    ├── camera.rs      # CameraPlugin    — first-person cockpit camera
+    ├── world.rs       # WorldPlugin     — lighting + reference objects
+    ├── starfield.rs   # StarfieldPlugin — procedural starfield
+    └── hud.rs         # HudPlugin       — minimal flight HUD
 assets/                # runtime assets loaded by Bevy's AssetServer
 .github/workflows/     # cross-platform CI (Windows / macOS / Linux)
 ```
