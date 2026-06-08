@@ -4,18 +4,20 @@
 
 use bevy::prelude::*;
 
-use crate::plugins::flight::{FlightConfig, Player, Ship};
+use crate::plugins::flight::{FlightConfig, FlightSet, Player, Ship};
 
 /// Marker for the HUD text node we update each frame.
+/// `pub(crate)` so the wiring smoke test can assert exactly one exists.
 #[derive(Component)]
-struct HudText;
+pub(crate) struct HudText;
 
 pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_hud)
-            .add_systems(Update, update_hud);
+            // Show this frame's attitude: read after the flight integrator.
+            .add_systems(Update, update_hud.after(FlightSet::Integrate));
     }
 }
 
@@ -43,7 +45,10 @@ fn update_hud(
     mut hud: Single<&mut Text, With<HudText>>,
 ) {
     let (transform, ship) = player.into_inner();
-    // EulerRot::YXZ decomposes to (yaw, pitch, roll).
+    // EulerRot::YXZ decomposes to (yaw, pitch, roll). This is an *indicative*
+    // readout only: near pitch = ±90° the YXZ extraction hits gimbal lock and
+    // yaw/roll can jump. The flight model is quaternion-driven, so flight itself
+    // is unaffected — only this display degenerates at the poles.
     let (yaw, pitch, roll) = transform.rotation.to_euler(EulerRot::YXZ);
 
     hud.0 = format!(

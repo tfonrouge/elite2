@@ -2,7 +2,8 @@
 //!
 //! Stars are placed on a large sphere shell using a deterministic Fibonacci
 //! lattice (even coverage, no external RNG). All stars share one mesh and one
-//! unlit material, so they batch into a single draw call.
+//! unlit material, which is batch-friendly — it lets the renderer draw them in
+//! far fewer calls than one-per-star (the exact batching is up to Bevy).
 //!
 //! The shell is parented to a root that tracks the player's *position but not
 //! rotation* every frame. The effect: stars stay infinitely far (no translation
@@ -11,11 +12,12 @@
 
 use bevy::prelude::*;
 
-use crate::plugins::flight::Player;
+use crate::plugins::flight::{FlightSet, Player};
 
 /// Root the stars hang off of; follows the player's translation each frame.
+/// `pub(crate)` so the wiring smoke test can assert exactly one exists.
 #[derive(Component)]
-struct StarfieldRoot;
+pub(crate) struct StarfieldRoot;
 
 const STAR_COUNT: usize = 1400;
 const SHELL_RADIUS: f32 = 700.0;
@@ -26,7 +28,9 @@ pub struct StarfieldPlugin;
 impl Plugin for StarfieldPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_starfield)
-            .add_systems(Update, follow_player);
+            // Read the player's translation *after* this frame's flight update,
+            // so the field is centered on the ship's current position.
+            .add_systems(Update, follow_player.after(FlightSet::Integrate));
     }
 }
 
@@ -71,7 +75,10 @@ fn follow_player(
 
 /// `i`-th of `n` points evenly distributed on the unit sphere (Fibonacci
 /// lattice). Deterministic, so the same star pattern appears every run.
+///
+/// Precondition: `n >= 2` (with `n == 1` the `n - 1` divisor is zero).
 fn fibonacci_sphere(i: usize, n: usize) -> Vec3 {
+    debug_assert!(n >= 2, "fibonacci_sphere requires n >= 2, got {n}");
     // Golden angle in radians.
     let golden_angle = std::f32::consts::PI * (3.0 - 5.0_f32.sqrt());
     let y = 1.0 - (i as f32 / (n as f32 - 1.0)) * 2.0; // 1.0 → -1.0

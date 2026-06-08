@@ -59,6 +59,13 @@ systems (per the roadmap): `combat`, `galaxy`/`universe`, `economy`,
 
 ## Conventions
 
-- Keep `DESIGN.md` updated with decisions and the current phase.
-- Commit in small, logical increments with clear messages.
+- **English only.** All project artifacts (docs, code, comments, commit
+  messages) and all assistant responses are written in English, regardless of
+  the language used to make a request.
+- Keep `DESIGN.md` updated with decisions and the current phase. Record resolved
+  "big forks" in the decision ledger `DECISIONS.md` (alternatives, who approved,
+  and a falsification condition each).
+- **Never `git commit` or `git push` without the user's explicit approval.**
+  Prepare and verify changes, keep them in small logical increments, then ask
+  before committing — the user oversees what lands in history.
 - Personal/machine-specific settings go in `CLAUDE.local.md` (not committed).

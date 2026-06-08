@@ -12,6 +12,12 @@
 use bevy::prelude::*;
 
 /// Marker for the single player-controlled entity.
+///
+/// **Phase 1 invariant: exactly one `Player` exists.** The camera, HUD, and
+/// starfield read it through `Single<.. With<Player>>`, which *silently skips*
+/// its system if there are zero or more than one (it does not panic). If a
+/// future phase introduces multiple controllable ships, those `Single` queries
+/// must be revisited.
 #[derive(Component)]
 pub struct Player;
 
@@ -26,8 +32,11 @@ pub struct Ship {
     pub angular_velocity: Vec3,
 }
 
-/// Tunable flight characteristics. Lives as a resource so it's easy to tweak
-/// (and later expose per ship-hull as the game grows).
+/// Tunable flight characteristics, kept as a single global resource for Phase 1.
+///
+/// Per-ship-hull tuning later means a Resource → Component move plus
+/// generalizing the integrator from `Single<.. With<Player>>` to a `Query`;
+/// tracked as a known, deliberate Phase-1 shortcut in `DECISIONS.md` (DL-004).
 #[derive(Resource, Debug, Clone)]
 pub struct FlightConfig {
     /// Top speed at full throttle, units/second.
@@ -61,13 +70,22 @@ impl Default for FlightConfig {
     }
 }
 
+/// System set wrapping the flight integrator. Systems that *read* the player's
+/// `Transform` in the same frame (cockpit follow-readers, HUD, starfield) order
+/// themselves `.after(FlightSet::Integrate)` so they observe the current
+/// frame's motion rather than the previous frame's.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FlightSet {
+    Integrate,
+}
+
 pub struct FlightPlugin;
 
 impl Plugin for FlightPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FlightConfig>()
             .add_systems(Startup, spawn_player)
-            .add_systems(Update, flight_controls);
+            .add_systems(Update, flight_controls.in_set(FlightSet::Integrate));
     }
 }
 

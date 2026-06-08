@@ -8,6 +8,9 @@
 
 mod plugins;
 
+#[cfg(test)]
+mod wiring; // headless plugin-wiring smoke test (test builds only)
+
 use bevy::prelude::*;
 
 use plugins::{

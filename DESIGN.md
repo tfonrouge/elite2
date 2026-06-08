@@ -39,6 +39,10 @@ camera mounts in `PostStartup` so the ship (spawned in `Startup`) already exists
 
 ## Decision log
 
+> The formal ledger — with alternatives considered, who approved each decision,
+> and a falsification condition per decision — lives in
+> [`DECISIONS.md`](DECISIONS.md). The summary below is the quick reference.
+
 - **Bevy version: pinned to exactly `=0.18.1`** (latest stable as of project
   start; verified against crates.io). Bevy's API changes between releases, so a
   bump is a deliberate, called-out decision with migration work — never casual.
@@ -51,13 +55,17 @@ camera mounts in `PostStartup` so the ship (spawned in `Startup`) already exists
   builds; off by default (dynamic linking complicates distribution).
 - **Clippy:** `clippy::all` at warn, CI denies warnings. `too_many_arguments`
   and `type_complexity` are allowed — they fight Bevy's ECS idioms.
-- **Phase 0 visible scene:** a single lit cube, deliberately, to prove the 3D
-  render pipeline (mesh + material + light + camera) works end-to-end. It is a
-  placeholder, not gameplay.
+- **Phase 0 visible scene (superseded by Phase 1):** a single lit cube,
+  deliberately, to prove the 3D render pipeline (mesh + material + light +
+  camera) works end-to-end. Replaced by Phase 1's ring station + asteroids; kept
+  here as historical record.
 - **Flight model = damped arcade** (Phase 1, decided). Throttle sets a target
   speed the ship accelerates toward; angular velocity ramps toward input and
-  damps to zero on release (auto-stabilize). Frame-rate independent. A Newtonian
-  / flight-assist-off mode is a possible later toggle.
+  damps to zero on release (auto-stabilize). Integration is `dt`-scaled (speed
+  and the exponential angular smoothing are frame-rate independent; applying
+  angular velocity as three sequential local rotations per frame is a minor
+  arcade approximation, since rotations don't commute). A Newtonian /
+  flight-assist-off mode is a possible later toggle.
 - **Camera = first-person cockpit** (Phase 1, decided). Mounted as a child of
   the ship so transform propagation handles the follow; no per-frame sync.
 - **Controls (Phase 1):** keyboard — W/S pitch, A/D yaw, Q/E roll, R/F throttle.

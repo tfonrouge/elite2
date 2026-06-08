@@ -38,7 +38,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: cargo clippy (deny warnings)
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
   # Build + test on all three first-class desktop platforms.
   build:
@@ -69,16 +69,19 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # `--locked` makes CI fail if Cargo.lock is out of date rather than
+      # silently re-resolving — upholding the committed-lockfile reproducibility
+      # promise (see DESIGN.md).
       - name: cargo build
-        run: cargo build --verbose
+        run: cargo build --locked --verbose
 
       - name: cargo test
-        run: cargo test --verbose
+        run: cargo test --locked --verbose
 
       # Produce a per-platform release artifact. Not enabling Bevy's `dev`
       # (dynamic linking) feature here — release builds are statically linked.
       - name: cargo build --release
-        run: cargo build --release --verbose
+        run: cargo build --locked --release --verbose
 
       - name: Upload ${{ matrix.os }} artifact
         uses: actions/upload-artifact@v4

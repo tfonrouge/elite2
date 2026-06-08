@@ -77,9 +77,13 @@ The tree is kept warning-free and formatted:
 ```sh
 cargo fmt --all                       # format
 cargo fmt --all -- --check            # verify formatting (CI)
-cargo clippy --all-targets -- -D warnings   # lints, warnings as errors (CI)
-cargo test
+cargo clippy --locked --all-targets -- -D warnings   # lints, warnings as errors (CI)
+cargo test --locked
 ```
+
+CI runs `build`, `test`, and `clippy` with `--locked`, so a stale `Cargo.lock`
+fails the build rather than silently re-resolving. Use `--locked` locally too to
+match.
 
 ## Project layout
 
