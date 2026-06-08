@@ -1,22 +1,37 @@
-//! The player's view into the world.
+//! The player's view: a first-person **cockpit** camera (chosen in DESIGN.md).
 //!
-//! For now this is a single fixed 3D camera pointed at the origin so the
-//! placeholder scene is visible. In the flight slice (Phase 1) this plugin
-//! grows into a proper cockpit/chase camera that follows the player's ship.
+//! The camera is spawned as a *child* of the player's ship, so Bevy's transform
+//! propagation keeps it locked to the cockpit automatically — no per-frame sync
+//! system needed. It mounts in `PostStartup` so the ship (spawned by
+//! [`super::flight`] in `Startup`) is guaranteed to exist.
 
 use bevy::prelude::*;
+
+use crate::plugins::flight::Player;
+
+/// Marker for the cockpit camera.
+#[derive(Component)]
+pub struct CockpitCamera;
 
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_camera);
+        app.add_systems(PostStartup, mount_cockpit_camera);
     }
 }
 
-fn spawn_camera(mut commands: Commands) {
+fn mount_cockpit_camera(mut commands: Commands, player: Single<Entity, With<Player>>) {
     commands.spawn((
+        CockpitCamera,
         Camera3d::default(),
-        Transform::from_xyz(-2.5, 4.5, 9.0).looking_at(Vec3::ZERO, Vec3::Y),
+        // Wider-than-default vertical FOV for a more immersive cockpit feel.
+        Projection::Perspective(PerspectiveProjection {
+            fov: 75.0_f32.to_radians(),
+            ..default()
+        }),
+        // Eye position, in ship-local space (slightly above the ship origin).
+        Transform::from_xyz(0.0, 0.5, 0.0),
+        ChildOf(*player),
     ));
 }

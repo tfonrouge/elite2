@@ -10,7 +10,10 @@ mod plugins;
 
 use bevy::prelude::*;
 
-use plugins::{camera::CameraPlugin, core::CorePlugin, world::WorldPlugin};
+use plugins::{
+    camera::CameraPlugin, core::CorePlugin, flight::FlightPlugin, hud::HudPlugin,
+    starfield::StarfieldPlugin, world::WorldPlugin,
+};
 
 fn main() {
     App::new()
@@ -24,8 +27,15 @@ fn main() {
             }),
             ..default()
         }))
-        // One plugin per game system. As the game grows (flight, combat,
-        // galaxy, economy, ...), each new system is added as a line here.
-        .add_plugins((CorePlugin, CameraPlugin, WorldPlugin))
+        // One plugin per game system. As the game grows (combat, galaxy,
+        // economy, ...), each new system is added as a line here.
+        .add_plugins((
+            CorePlugin,
+            FlightPlugin,
+            CameraPlugin,
+            WorldPlugin,
+            StarfieldPlugin,
+            HudPlugin,
+        ))
         .run();
 }
