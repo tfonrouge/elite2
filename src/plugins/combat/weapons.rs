@@ -8,8 +8,9 @@
 //! hit the player, from one system.
 //!
 //! Pipeline (within `Update`, ordered by [`CombatSet`](super::CombatSet)):
-//! `fire_weapons` (Fire) → [`ProjectileHit`] → `apply_damage` (Damage) →
-//! [`ShipDestroyed`] → `handle_death` (Death).
+//! `fire_weapons` (Fire) → [`DamageDealt`] → `apply_damage` (Damage) →
+//! [`ShipDestroyed`] → `handle_death` (Death). Collisions feed the same
+//! [`DamageDealt`] → `apply_damage` chokepoint (see `super::collision`).
 
 use std::time::Duration;
 
@@ -20,7 +21,7 @@ use bevy::prelude::*;
 use crate::plugins::flight::Player;
 
 use super::components::{Bounty, CollisionRadius, Energy, Faction, Shields};
-use super::events::{Hemisphere, ProjectileHit, ShipDestroyed};
+use super::events::{DamageDealt, Hemisphere, ShipDestroyed};
 
 /// Key that fires the player's forward laser (held to fire repeatedly).
 const FIRE_KEY: KeyCode = KeyCode::Space;
@@ -83,7 +84,7 @@ pub(super) fn fire_weapons(
     time: Res<Time>,
     mut shooters: Query<(Entity, &Transform, &Faction, &mut Weapon)>,
     targets: Query<(Entity, &Transform, &Faction, &CollisionRadius)>,
-    mut hits: MessageWriter<ProjectileHit>,
+    mut hits: MessageWriter<DamageDealt>,
 ) {
     let dt = Duration::from_secs_f32(time.delta_secs());
     for (shooter, shooter_tf, shooter_faction, mut weapon) in &mut shooters {
@@ -117,13 +118,9 @@ pub(super) fn fire_weapons(
         }
 
         if let Some((target, _, target_pos, target_forward)) = nearest {
-            // Fore if the shooter is in front of the target's nose, else aft.
-            let hemisphere = if target_forward.dot(shooter_tf.translation - target_pos) > 0.0 {
-                Hemisphere::Fore
-            } else {
-                Hemisphere::Aft
-            };
-            hits.write(ProjectileHit {
+            let hemisphere =
+                Hemisphere::facing(target_forward, shooter_tf.translation - target_pos);
+            hits.write(DamageDealt {
                 target,
                 damage: weapon.damage,
                 hemisphere,
@@ -136,7 +133,7 @@ pub(super) fn fire_weapons(
 /// Apply each hit: drain the struck shield, then the energy banks. A ship whose
 /// energy reaches zero is reported destroyed.
 pub(super) fn apply_damage(
-    mut hits: MessageReader<ProjectileHit>,
+    mut hits: MessageReader<DamageDealt>,
     mut ships: Query<(&mut Shields, &mut Energy, Option<&Bounty>)>,
     mut destroyed: MessageWriter<ShipDestroyed>,
 ) {

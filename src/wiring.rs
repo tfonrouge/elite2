@@ -349,6 +349,70 @@ fn a_ship_does_not_fire_on_itself_or_allies() {
 }
 
 #[test]
+fn overlapping_ships_take_collision_damage() {
+    // DL-014: two ships whose spheres overlap ram each other, and the damage flows
+    // through the same apply_damage chokepoint (so both shields drain).
+    let mut app = timed_app(0.05);
+    app.update(); // player at the origin, CollisionRadius 6
+
+    // Another ship overlapping the player (5 u apart < 6 + 8 = 14).
+    let other = app
+        .world_mut()
+        .spawn((
+            Faction::Pirate,
+            Shields::default(),
+            Energy::default(),
+            CollisionRadius(8.0),
+            Transform::from_xyz(0.0, 0.0, -5.0),
+        ))
+        .id();
+
+    for _ in 0..10 {
+        app.update();
+    }
+
+    let player_shields = {
+        let mut query = app.world_mut().query_filtered::<&Shields, With<Player>>();
+        *query.iter(app.world()).next().expect("the player exists")
+    };
+    let other_shields = *app.world().get::<Shields>(other).expect("other ship");
+    assert!(
+        player_shields.fore < 64.0 || player_shields.aft < 64.0,
+        "the player is rammed"
+    );
+    assert!(
+        other_shields.fore < 64.0 || other_shields.aft < 64.0,
+        "the other ship is rammed"
+    );
+}
+
+#[test]
+fn distant_ships_do_not_collide() {
+    let mut app = timed_app(0.05);
+    app.update();
+
+    // Far from the player — well beyond the summed radii.
+    let other = app
+        .world_mut()
+        .spawn((
+            Faction::Pirate,
+            Shields::default(),
+            Energy::default(),
+            CollisionRadius(8.0),
+            Transform::from_xyz(0.0, 0.0, -100.0),
+        ))
+        .id();
+
+    for _ in 0..10 {
+        app.update();
+    }
+
+    let other_shields = *app.world().get::<Shields>(other).expect("other ship");
+    assert_eq!(other_shields.fore, 64.0, "no collision at range");
+    assert_eq!(other_shields.aft, 64.0, "no collision at range");
+}
+
+#[test]
 fn enemy_ai_turns_the_nose_toward_the_player() {
     // The no-yaw aimer must steer TOWARD the player (the sign the adversarial
     // review caught inverted). Place the player far to the enemy's local right and

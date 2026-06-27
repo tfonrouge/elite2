@@ -1,23 +1,24 @@
-//! `CombatPlugin` — weapons, damage, enemy spawning (Phase 2).
+//! `CombatPlugin` — weapons, damage, enemy AI, collision, and spawning (Phase 2).
 //!
 //! Faithful to the 1984 original (`GAMEPLAY.md` §10–§13): **instant-hit lasers**
-//! (DL-012), shields → energy damage with **no separate hull**, and a **debug
-//! command-spawn plus an in-system spawn hook** (DL-017). Still to come in this
-//! phase: homing missiles + ECM (DL-013), sphere-sphere ship collision (DL-014),
-//! and the full faithful enemy tactics routine (DL-015) with a hybrid evade exit
-//! (DL-016).
+//! (DL-012), **two-sided faction-based fire**, **hemisphere → shields → energy**
+//! damage with no separate hull, **sphere-sphere ship collision** (DL-014), the
+//! full **no-yaw enemy tactics** (DL-015) with a **hybrid evade** (DL-016), and a
+//! **debug command-spawn + in-system hook** (DL-017). Still to come this phase:
+//! homing **missiles + ECM** (DL-013), the ~10% escape-pod bail, and the combat
+//! HUD readout.
 //!
-//! This increment is a thin runnable vertical: debug-spawn a pirate, fire an
-//! instant-hit laser at it, watch its shields then energy drain to destruction,
-//! with shields/energy recharging over time. The events-driven split of the
-//! pipeline (Messages between stages) lands when there's more than one producer
-//! or consumer to decouple.
+//! All damage flows through a single chokepoint: every source emits the shared
+//! [`events::DamageDealt`] message, `apply_damage` is the only system that mutates
+//! health and emits [`events::ShipDestroyed`], and `handle_death` is the only
+//! despawner — so a ship killed by two sources in one frame is reported once.
 
 // `ai`, `components`, and `events` are public so tests (and, from Phase 3,
 // sibling plugins) can name their types via `combat::<mod>::Foo`. A flatter
 // `combat::Foo` re-export waits until a non-test consumer exists, to stay
 // `unused_imports`-clean.
 pub mod ai;
+mod collision;
 pub mod components;
 pub mod events;
 mod spawn;
@@ -27,7 +28,7 @@ mod weapons;
 use bevy::prelude::*;
 
 use crate::plugins::flight::FlightSet;
-use events::{ProjectileHit, ShipDestroyed};
+use events::{DamageDealt, ShipDestroyed};
 
 /// Deterministic ordering for the combat pipeline, all within `Update`, and as a
 /// whole **after** [`FlightSet::Integrate`](crate::plugins::flight::FlightSet) so
@@ -35,8 +36,8 @@ use events::{ProjectileHit, ShipDestroyed};
 ///
 /// `Spawn → Fire → Projectiles → Collide → Damage → Death → Cleanup`
 ///
-/// `Projectiles` and `Collide` have no systems yet — they are the slots the
-/// missile and ship-collision systems attach to in later steps.
+/// `Projectiles` has no systems yet — the slot the missile homing/lifetime
+/// systems attach to (DL-013).
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CombatSet {
     /// Introduce ships into the world (debug command-spawn; later in-system).
@@ -45,7 +46,8 @@ pub enum CombatSet {
     Fire,
     /// Advance projectiles — missile homing + lifetime (later).
     Projectiles,
-    /// Detect contacts — sphere-sphere ship/projectile collision (later).
+    /// Detect contacts — sphere-sphere ship collision (the `detect_collisions`
+    /// system); projectile collision joins here with missiles.
     Collide,
     /// Apply hits to shields then energy (the `apply_damage` system).
     Damage,
@@ -59,7 +61,7 @@ pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<ProjectileHit>()
+        app.add_message::<DamageDealt>()
             .add_message::<ShipDestroyed>()
             .configure_sets(
                 Update,
@@ -87,6 +89,7 @@ impl Plugin for CombatPlugin {
                     (weapons::player_fire_intent, weapons::fire_weapons)
                         .chain()
                         .in_set(CombatSet::Fire),
+                    collision::detect_collisions.in_set(CombatSet::Collide),
                     weapons::apply_damage.in_set(CombatSet::Damage),
                     weapons::handle_death.in_set(CombatSet::Death),
                     survival::recharge.in_set(CombatSet::Cleanup),
