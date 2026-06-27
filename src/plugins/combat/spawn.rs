@@ -10,6 +10,7 @@ use bevy::prelude::*;
 
 use crate::plugins::flight::{Player, Ship};
 
+use super::ai::EnemyAi;
 use super::components::{Bounty, CollisionRadius, Enemy, Energy, Faction, Shields};
 
 /// Debug spawn key — press to drop a pirate enemy into the world for testing.
@@ -83,6 +84,7 @@ pub(super) fn spawn_enemy(
     commands.spawn((
         Enemy,
         faction,
+        EnemyAi::default(),
         Ship::default(),
         Shields::default(),
         Energy::default(),

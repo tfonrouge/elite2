@@ -21,11 +21,12 @@ use bevy::time::TimeUpdateStrategy;
 
 use crate::plugins::camera::CockpitCamera;
 use crate::plugins::combat::CombatPlugin;
+use crate::plugins::combat::ai::{AiState, EnemyAi};
 use crate::plugins::combat::components::{
     Bounty, CollisionRadius, Enemy, Energy, Faction, Shields,
 };
 use crate::plugins::core::CorePlugin;
-use crate::plugins::flight::{Player, Ship, YawAssist};
+use crate::plugins::flight::{FlightInput, Player, Ship, YawAssist};
 use crate::plugins::hud::HudText;
 use crate::plugins::starfield::StarfieldRoot;
 use crate::plugins::{
@@ -185,27 +186,21 @@ fn sustained_laser_fire_destroys_an_enemy() {
     let mut app = timed_app(0.1);
     app.update();
 
-    // Debug-spawn an enemy, then aim the player straight at it.
-    send_key(&mut app, KeyCode::KeyB, ButtonState::Pressed);
+    // A stationary target dead ahead on the player's -Z axis. We give it no `Ship`
+    // or `EnemyAi`, so it holds position — testing the laser in isolation from the
+    // AI's movement (the player starts at the origin facing -Z).
+    app.world_mut().spawn((
+        Enemy,
+        Shields::default(),
+        Energy::default(),
+        CollisionRadius(8.0),
+        Bounty(15.0),
+        Transform::from_xyz(0.0, 0.0, -50.0),
+    ));
     app.update();
-    let enemy_pos = {
-        let mut query = app.world_mut().query_filtered::<&Transform, With<Enemy>>();
-        query
-            .iter(app.world())
-            .next()
-            .expect("an enemy exists")
-            .translation
-    };
-    {
-        let mut query = app
-            .world_mut()
-            .query_filtered::<&mut Transform, With<Player>>();
-        let mut iter = query.iter_mut(app.world_mut());
-        let mut player = iter.next().expect("a Player exists");
-        player.look_at(enemy_pos, Vec3::Y);
-    }
+    assert_eq!(count::<With<Enemy>>(&mut app), 1, "a target exists");
 
-    // Pulse the laser until the enemy's shields and energy are spent.
+    // Pulse the laser until the target's shields and energy are spent.
     for _ in 0..12 {
         send_key(&mut app, KeyCode::Space, ButtonState::Pressed);
         app.update();
@@ -216,7 +211,218 @@ fn sustained_laser_fire_destroys_an_enemy() {
     assert_eq!(
         count::<With<Enemy>>(&mut app),
         0,
-        "sustained laser fire destroys the enemy"
+        "sustained laser fire destroys the target"
+    );
+}
+
+#[test]
+fn enemy_ai_turns_the_nose_toward_the_player() {
+    // The no-yaw aimer must steer TOWARD the player (the sign the adversarial
+    // review caught inverted). Place the player far to the enemy's local right and
+    // assert the enemy rotates to face it — and never commands yaw (DL-011).
+    let mut app = timed_app(0.05);
+    app.update(); // startup
+
+    // Move the player well off to the side (kept out of attack range / reach).
+    {
+        let mut query = app
+            .world_mut()
+            .query_filtered::<&mut Transform, With<Player>>();
+        let mut iter = query.iter_mut(app.world_mut());
+        let mut player = iter.next().expect("a Player exists");
+        *player = Transform::from_xyz(1500.0, 0.0, 0.0);
+    }
+    // Spawn an enemy at the origin facing -Z (so the player is ~90° to its right).
+    let enemy = app
+        .world_mut()
+        .spawn((
+            Enemy,
+            Ship::default(),
+            Energy::default(),
+            EnemyAi::default(),
+            Transform::default(),
+        ))
+        .id();
+
+    // Run ~6 s of the AI → integrator pipeline.
+    for _ in 0..120 {
+        app.update();
+    }
+
+    let player_pos = {
+        let mut query = app.world_mut().query_filtered::<&Transform, With<Player>>();
+        query.iter(app.world()).next().expect("player").translation
+    };
+    let enemy_tf = *app
+        .world()
+        .get::<Transform>(enemy)
+        .expect("enemy transform");
+    let yaw_cmd = app
+        .world()
+        .get::<FlightInput>(enemy)
+        .expect("enemy FlightInput")
+        .rotation
+        .y;
+
+    let to_player = (player_pos - enemy_tf.translation).normalize_or_zero();
+    let aim = enemy_tf.forward().as_vec3().dot(to_player);
+    assert!(
+        aim > 0.7,
+        "enemy should turn to face the player (forward·dir = {aim})"
+    );
+    assert_eq!(yaw_cmd, 0.0, "DL-011: the NPC never commands yaw");
+}
+
+/// The AI state of a specific enemy (test-only accessor).
+fn ai_state(app: &App, enemy: Entity) -> AiState {
+    app.world()
+        .get::<EnemyAi>(enemy)
+        .expect("enemy has EnemyAi")
+        .state()
+}
+
+/// Spawn a bare AI enemy (no mesh) at `pos` and return its entity.
+fn spawn_ai_enemy(app: &mut App, pos: Vec3) -> Entity {
+    app.world_mut()
+        .spawn((
+            Enemy,
+            Ship::default(),
+            Energy::default(),
+            EnemyAi::default(),
+            Transform::from_translation(pos),
+        ))
+        .id()
+}
+
+#[test]
+fn a_healthy_enemy_in_range_enters_attack() {
+    let mut app = timed_app(0.05);
+    app.update(); // player at the origin
+
+    // 200 u away — inside ATTACK_RANGE (350) — and at full energy.
+    let enemy = spawn_ai_enemy(&mut app, Vec3::new(0.0, 0.0, -200.0));
+    app.update(); // one AI tick: Approach -> Attack
+
+    assert_eq!(
+        ai_state(&app, enemy),
+        AiState::Attack,
+        "a healthy enemy within range attacks"
+    );
+}
+
+#[test]
+fn an_evading_enemy_opens_distance_then_re_engages() {
+    // Exercises the DL-016 hybrid evade: low energy breaks the enemy off, it opens
+    // a distance goal, and (with energy restored) the leg ends and it re-engages.
+    let mut app = timed_app(0.05);
+    app.update();
+
+    // Place the enemy so the player sits behind its nose — evading just means
+    // burning straight ahead, which opens distance cleanly.
+    let enemy = spawn_ai_enemy(&mut app, Vec3::new(0.0, 0.0, -200.0));
+    app.update();
+
+    // Cripple its energy → it must break off into Evade.
+    app.world_mut().get_mut::<Energy>(enemy).unwrap().current = 10.0;
+    app.update();
+    assert_eq!(
+        ai_state(&app, enemy),
+        AiState::Evade,
+        "low energy breaks the enemy off into Evade"
+    );
+
+    let player_pos = Vec3::ZERO; // player starts at the origin and does not move
+    let start_dist = app
+        .world()
+        .get::<Transform>(enemy)
+        .unwrap()
+        .translation
+        .distance(player_pos);
+
+    // Heal it so the leg can complete and it re-engages rather than running forever.
+    app.world_mut().get_mut::<Energy>(enemy).unwrap().current = 150.0;
+
+    let mut max_dist = start_dist;
+    let mut re_engaged = false;
+    for _ in 0..200 {
+        app.update();
+        let dist = app
+            .world()
+            .get::<Transform>(enemy)
+            .unwrap()
+            .translation
+            .distance(player_pos);
+        max_dist = max_dist.max(dist);
+        if ai_state(&app, enemy) != AiState::Evade {
+            re_engaged = true;
+            break;
+        }
+    }
+
+    assert!(
+        re_engaged,
+        "the evade leg ends (distance goal or timeout) and the enemy re-engages"
+    );
+    assert!(
+        max_dist > start_dist + 50.0,
+        "evade opened distance (max {max_dist} from start {start_dist})"
+    );
+}
+
+#[test]
+fn an_evade_leg_ends_on_the_timeout_when_distance_cannot_open() {
+    // The *other* DL-016 branch: when the enemy can't open the distance goal (a
+    // player keeping pace), the leg must still end on the timeout cap. The
+    // sibling test above covers the distance branch; this covers the timeout.
+    let mut app = timed_app(0.05);
+    app.update();
+
+    let enemy = spawn_ai_enemy(&mut app, Vec3::new(0.0, 0.0, -200.0));
+    app.update();
+
+    // Break it off into Evade, then heal so the leg ends into Approach (not a
+    // fresh low-energy leg).
+    app.world_mut().get_mut::<Energy>(enemy).unwrap().current = 10.0;
+    app.update();
+    assert_eq!(ai_state(&app, enemy), AiState::Evade, "low energy -> Evade");
+    app.world_mut().get_mut::<Energy>(enemy).unwrap().current = 150.0;
+
+    let mut exited = false;
+    for _ in 0..400 {
+        // Chase: pin the player a short, constant distance from the enemy each
+        // frame, so the distance goal can never be met — the only remaining exit
+        // is the timeout.
+        let enemy_pos = app.world().get::<Transform>(enemy).unwrap().translation;
+        {
+            let mut query = app
+                .world_mut()
+                .query_filtered::<&mut Transform, With<Player>>();
+            let mut iter = query.iter_mut(app.world_mut());
+            iter.next().unwrap().translation = enemy_pos + Vec3::new(0.0, 0.0, 100.0);
+        }
+        app.update();
+        if ai_state(&app, enemy) != AiState::Evade {
+            exited = true;
+            break;
+        }
+    }
+    assert!(exited, "the evade leg ends even when distance never opens");
+
+    let player_pos = {
+        let mut query = app.world_mut().query_filtered::<&Transform, With<Player>>();
+        query.iter(app.world()).next().expect("player").translation
+    };
+    let final_dist = app
+        .world()
+        .get::<Transform>(enemy)
+        .unwrap()
+        .translation
+        .distance(player_pos);
+    // The player stayed ~100 u away, far below the ~600 u distance goal, so the
+    // leg can only have ended on the DL-016 timeout — not the distance branch.
+    assert!(
+        final_dist < 300.0,
+        "leg ended on the timeout, not the distance goal (dist {final_dist})"
     );
 }
 

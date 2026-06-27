@@ -13,9 +13,11 @@
 //! pipeline (Messages between stages) lands when there's more than one producer
 //! or consumer to decouple.
 
-// `components` is public so tests (and, from Phase 3, sibling plugins) can name
-// the combat data types via `combat::components::Foo`. A flatter `combat::Foo`
-// re-export waits until a non-test consumer exists, to stay `unused_imports`-clean.
+// `ai` and `components` are public so tests (and, from Phase 3, sibling plugins)
+// can name their types via `combat::ai::Foo` / `combat::components::Foo`. A
+// flatter `combat::Foo` re-export waits until a non-test consumer exists, to stay
+// `unused_imports`-clean.
+pub mod ai;
 pub mod components;
 mod spawn;
 mod survival;
@@ -70,6 +72,9 @@ impl Plugin for CombatPlugin {
                 .after(FlightSet::Integrate),
         )
         .add_systems(PostStartup, spawn::init_player_combat)
+        // The enemy AI writes each enemy's FlightInput, so it joins the flight
+        // ReadInput set (before the integrator), per that set's contract.
+        .add_systems(Update, ai::enemy_ai.in_set(FlightSet::ReadInput))
         .add_systems(
             Update,
             (
