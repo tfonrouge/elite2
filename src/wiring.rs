@@ -20,6 +20,10 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 
 use crate::plugins::camera::CockpitCamera;
+use crate::plugins::combat::CombatPlugin;
+use crate::plugins::combat::components::{
+    Bounty, CollisionRadius, Enemy, Energy, Faction, Shields,
+};
 use crate::plugins::core::CorePlugin;
 use crate::plugins::flight::{Player, Ship, YawAssist};
 use crate::plugins::hud::HudText;
@@ -47,6 +51,7 @@ fn headless_app() -> App {
             WorldPlugin,
             StarfieldPlugin,
             HudPlugin,
+            CombatPlugin,
         ));
     app
 }
@@ -107,6 +112,111 @@ fn cockpit_camera_is_a_child_of_the_player() {
     assert_eq!(
         camera_parent, player,
         "cockpit camera must be parented to the player ship"
+    );
+}
+
+#[test]
+fn player_is_initialised_as_a_combatant() {
+    // CombatPlugin's PostStartup system tags the player's faction AND gives it the
+    // shield/energy/collision set, so recharge and (Step 5) enemy weapons treat it
+    // like any other ship instead of silently skipping it. This also proves the
+    // plugin boots under MinimalPlugins (no `GizmoConfigStore`) without panicking.
+    let mut app = headless_app();
+    app.update(); // Startup spawns the player; PostStartup initialises it.
+
+    // The query matches only if the player carries all of Shields + Energy +
+    // CollisionRadius (the filters) as well as Faction (read back).
+    let faction = {
+        let mut query = app.world_mut().query_filtered::<&Faction, (
+            With<Player>,
+            With<Shields>,
+            With<Energy>,
+            With<CollisionRadius>,
+        )>();
+        query.iter(app.world()).next().copied()
+    };
+    assert_eq!(
+        faction,
+        Some(Faction::Player),
+        "player is tagged Player and carries the shield/energy/collision set"
+    );
+}
+
+#[test]
+fn debug_key_spawns_a_pirate_enemy_with_combat_components() {
+    let mut app = headless_app();
+    app.update();
+    assert_eq!(
+        count::<With<Enemy>>(&mut app),
+        0,
+        "no enemy before the spawn key"
+    );
+
+    send_key(&mut app, KeyCode::KeyB, ButtonState::Pressed);
+    app.update();
+
+    assert_eq!(
+        count::<With<Enemy>>(&mut app),
+        1,
+        "one enemy after pressing B"
+    );
+    let (faction, shields, energy, radius, bounty) = {
+        let mut query = app
+            .world_mut()
+            .query_filtered::<(&Faction, &Shields, &Energy, &CollisionRadius, &Bounty), With<Enemy>>();
+        let (f, s, e, r, b) = query.iter(app.world()).next().expect("an enemy exists");
+        (*f, *s, *e, r.0, b.0)
+    };
+    assert_eq!(faction, Faction::Pirate, "the debug enemy is a pirate");
+    assert!(
+        shields.fore > 0.0 && shields.aft > 0.0 && shields.max > 0.0,
+        "enemy has shields"
+    );
+    assert!(
+        energy.current > 0.0 && energy.max > 0.0,
+        "enemy has energy banks"
+    );
+    assert!(radius > 0.0, "enemy has a collision radius");
+    assert!(bounty > 0.0, "enemy carries a bounty");
+}
+
+#[test]
+fn sustained_laser_fire_destroys_an_enemy() {
+    let mut app = timed_app(0.1);
+    app.update();
+
+    // Debug-spawn an enemy, then aim the player straight at it.
+    send_key(&mut app, KeyCode::KeyB, ButtonState::Pressed);
+    app.update();
+    let enemy_pos = {
+        let mut query = app.world_mut().query_filtered::<&Transform, With<Enemy>>();
+        query
+            .iter(app.world())
+            .next()
+            .expect("an enemy exists")
+            .translation
+    };
+    {
+        let mut query = app
+            .world_mut()
+            .query_filtered::<&mut Transform, With<Player>>();
+        let mut iter = query.iter_mut(app.world_mut());
+        let mut player = iter.next().expect("a Player exists");
+        player.look_at(enemy_pos, Vec3::Y);
+    }
+
+    // Pulse the laser until the enemy's shields and energy are spent.
+    for _ in 0..12 {
+        send_key(&mut app, KeyCode::Space, ButtonState::Pressed);
+        app.update();
+        send_key(&mut app, KeyCode::Space, ButtonState::Released);
+        app.update();
+    }
+
+    assert_eq!(
+        count::<With<Enemy>>(&mut app),
+        0,
+        "sustained laser fire destroys the enemy"
     );
 }
 

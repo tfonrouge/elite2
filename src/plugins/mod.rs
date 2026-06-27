@@ -13,6 +13,7 @@
 //! [`Plugin`]: bevy::prelude::Plugin
 
 pub mod camera;
+pub mod combat;
 pub mod core;
 pub mod flight;
 pub mod hud;

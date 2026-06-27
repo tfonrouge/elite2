@@ -56,12 +56,18 @@ procedural starfield, with a flight HUD in the top-left. Close the window to exi
 | R / F | Throttle (increase / decrease) |
 | Y     | Toggle **yaw assist** (off by default) |
 | Q / E | Yaw (left / right) — only while yaw assist is on |
+| Space | Fire laser (instant-hit) |
+| B     | *Debug:* spawn a test enemy ahead of you |
 
 The flight model is **damped arcade**: throttle sets a target speed the ship
 eases toward, and rotation self-stabilizes when you release the keys. Faithful to
 the 1984 original, the ship flies on **two axes — pitch and roll, no yaw**; an
 optional yaw-assist mode (`Y`) adds a yaw axis for those who want it. See
 [`GAMEPLAY.md`](GAMEPLAY.md) for the full faithful-gameplay spec.
+
+Combat is mid-build (Phase 2): press **B** to spawn a pirate, then **Space** to
+fire an instant-hit laser — its shields drain, then its energy, then it's gone.
+Homing missiles, enemy AI, and collision are still to come.
 
 ### Faster iteration during development
 
