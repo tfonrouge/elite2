@@ -25,6 +25,7 @@ use crate::plugins::combat::ai::{AiState, EnemyAi};
 use crate::plugins::combat::components::{
     Bounty, CollisionRadius, Enemy, Energy, Faction, Shields,
 };
+use crate::plugins::combat::events::ShipDestroyed;
 use crate::plugins::core::CorePlugin;
 use crate::plugins::flight::{FlightInput, Player, Ship, YawAssist};
 use crate::plugins::hud::HudText;
@@ -184,13 +185,14 @@ fn debug_key_spawns_a_pirate_enemy_with_combat_components() {
 #[test]
 fn sustained_laser_fire_destroys_an_enemy() {
     let mut app = timed_app(0.1);
-    app.update();
+    app.update(); // startup + PostStartup (the player is armed with a Weapon)
 
-    // A stationary target dead ahead on the player's -Z axis. We give it no `Ship`
-    // or `EnemyAi`, so it holds position — testing the laser in isolation from the
-    // AI's movement (the player starts at the origin facing -Z).
+    // A stationary target dead ahead on the player's -Z axis: faction Pirate so the
+    // player's faction-based fire can hit it, and no `Ship`/`EnemyAi` so it holds
+    // position — testing the laser in isolation from the AI's movement.
     app.world_mut().spawn((
         Enemy,
+        Faction::Pirate,
         Shields::default(),
         Energy::default(),
         CollisionRadius(8.0),
@@ -200,11 +202,9 @@ fn sustained_laser_fire_destroys_an_enemy() {
     app.update();
     assert_eq!(count::<With<Enemy>>(&mut app), 1, "a target exists");
 
-    // Pulse the laser until the target's shields and energy are spent.
-    for _ in 0..12 {
-        send_key(&mut app, KeyCode::Space, ButtonState::Pressed);
-        app.update();
-        send_key(&mut app, KeyCode::Space, ButtonState::Released);
+    // Hold the fire key; the cooldown-gated laser pulses until the target is gone.
+    send_key(&mut app, KeyCode::Space, ButtonState::Pressed);
+    for _ in 0..40 {
         app.update();
     }
 
@@ -213,6 +213,139 @@ fn sustained_laser_fire_destroys_an_enemy() {
         0,
         "sustained laser fire destroys the target"
     );
+}
+
+#[test]
+fn enemy_fire_damages_the_player() {
+    // The first test of the player TAKING damage: an enemy in Attack, nose-on,
+    // fires and drains the player's shields (which it got in init_player_combat).
+    let mut app = timed_app(0.05);
+    app.update();
+
+    // Spawn a full armed pirate via the debug key, then place it within attack
+    // range facing the player at the origin.
+    send_key(&mut app, KeyCode::KeyB, ButtonState::Pressed);
+    app.update();
+    let enemy = {
+        let mut query = app.world_mut().query_filtered::<Entity, With<Enemy>>();
+        query.iter(app.world()).next().expect("an enemy exists")
+    };
+    *app.world_mut().get_mut::<Transform>(enemy).unwrap() =
+        Transform::from_xyz(0.0, 0.0, -300.0).looking_at(Vec3::ZERO, Vec3::Y);
+
+    // Let it aim, get nose-on, and fire for a few seconds.
+    for _ in 0..80 {
+        app.update();
+    }
+
+    let shields = {
+        let mut query = app.world_mut().query_filtered::<&Shields, With<Player>>();
+        *query.iter(app.world()).next().expect("the player exists")
+    };
+    assert!(
+        shields.fore < 64.0 || shields.aft < 64.0,
+        "the player took shield damage from enemy fire (fore {}, aft {})",
+        shields.fore,
+        shields.aft
+    );
+}
+
+#[test]
+fn the_player_is_not_despawned_when_destroyed() {
+    // The player's loss is an escape pod / game over in a later phase — handle_death
+    // must NOT despawn the player, or one unlucky frame would delete the ship and
+    // orphan the camera/AI.
+    let mut app = headless_app();
+    app.update();
+
+    let player = {
+        let mut query = app.world_mut().query_filtered::<Entity, With<Player>>();
+        query.iter(app.world()).next().expect("a Player exists")
+    };
+    app.world_mut().write_message(ShipDestroyed {
+        ship: player,
+        bounty: 0.0,
+    });
+    app.update();
+
+    assert_eq!(
+        count::<With<Player>>(&mut app),
+        1,
+        "the player is not despawned on destruction"
+    );
+}
+
+#[test]
+fn the_first_shot_fires_immediately() {
+    // The refire timer starts ready, so a held trigger lands a hit on the very
+    // first frame rather than after a full cooldown.
+    let mut app = timed_app(0.05);
+    app.update(); // player armed
+
+    app.world_mut().spawn((
+        Enemy,
+        Faction::Pirate,
+        Shields::default(),
+        Energy::default(),
+        CollisionRadius(8.0),
+        Bounty(15.0),
+        Transform::from_xyz(0.0, 0.0, -50.0),
+    ));
+    app.update();
+
+    send_key(&mut app, KeyCode::Space, ButtonState::Pressed);
+    app.update(); // a single fire frame
+
+    let shields = {
+        let mut query = app.world_mut().query_filtered::<&Shields, With<Enemy>>();
+        *query.iter(app.world()).next().expect("a target exists")
+    };
+    assert!(
+        shields.fore < 64.0 || shields.aft < 64.0,
+        "the first shot lands on frame one (fore {}, aft {})",
+        shields.fore,
+        shields.aft
+    );
+}
+
+#[test]
+fn a_ship_does_not_fire_on_itself_or_allies() {
+    // Faction targeting must exclude the shooter itself and same-faction ships —
+    // the rule all friendly-fire safety rests on.
+    let mut app = timed_app(0.05);
+    app.update(); // player armed, faction Player
+
+    // A same-faction ally directly ahead of the player.
+    let ally = app
+        .world_mut()
+        .spawn((
+            Faction::Player,
+            Shields::default(),
+            Energy::default(),
+            CollisionRadius(8.0),
+            Transform::from_xyz(0.0, 0.0, -50.0),
+        ))
+        .id();
+    app.update();
+
+    // Hold fire with only the player and its ally in the line of sight.
+    send_key(&mut app, KeyCode::Space, ButtonState::Pressed);
+    for _ in 0..10 {
+        app.update();
+    }
+
+    let player_shields = {
+        let mut query = app.world_mut().query_filtered::<&Shields, With<Player>>();
+        *query.iter(app.world()).next().expect("the player exists")
+    };
+    let ally_shields = *app.world().get::<Shields>(ally).expect("ally shields");
+    assert_eq!(
+        player_shields.fore, 64.0,
+        "the player never fires on itself"
+    );
+    assert_eq!(player_shields.aft, 64.0, "the player never fires on itself");
+    assert_eq!(ally_shields.fore, 64.0, "the player never fires on an ally");
+    assert_eq!(ally_shields.aft, 64.0, "the player never fires on an ally");
 }
 
 #[test]

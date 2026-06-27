@@ -21,6 +21,7 @@ use bevy::prelude::*;
 use crate::plugins::flight::{FlightInput, Player, Ship};
 
 use super::components::{Enemy, Energy};
+use super::weapons::Weapon;
 
 // --- Steering gains -------------------------------------------------------
 /// Roll command per radian of roll error (roll is the fastest axis, so aggressive).
@@ -51,6 +52,10 @@ const EVADE_TIMEOUT: f32 = 6.0;
 /// Speed the enemy holds while attacking (units/s). `FlightInput.throttle` is a
 /// *rate*, so we bang-bang toward this rather than commanding a constant value.
 const ATTACK_SPEED: f32 = 50.0;
+
+/// Cosine of the firing-cone half-angle: the enemy only fires when its nose is
+/// within ~14° of the player (`forward·to_player` above this).
+const FIRE_CONE_COS: f32 = 0.97;
 /// Deadband around `ATTACK_SPEED` (units/s) so the throttle settles to 0 instead
 /// of dithering ±1 each frame at the target speed.
 const SPEED_DEADBAND: f32 = 2.0;
@@ -101,21 +106,34 @@ impl EnemyAi {
 pub(super) fn enemy_ai(
     time: Res<Time>,
     player: Query<&Transform, With<Player>>,
-    mut enemies: Query<(&Transform, &Ship, &Energy, &mut EnemyAi, &mut FlightInput), With<Enemy>>,
+    mut enemies: Query<
+        (
+            &Transform,
+            &Ship,
+            &Energy,
+            &mut EnemyAi,
+            &mut FlightInput,
+            Option<&mut Weapon>,
+        ),
+        With<Enemy>,
+    >,
 ) {
-    // No unique player → enemies coast (zero the persistent command rather than
-    // flying the last one forever).
+    // No unique player → enemies coast and hold fire (zero the persistent command
+    // rather than flying/firing the last one forever).
     let Ok(player_tf) = player.single() else {
-        for (.., mut input) in &mut enemies {
+        for (_, _, _, _, mut input, weapon) in &mut enemies {
             input.rotation = Vec3::ZERO;
             input.throttle = 0.0;
+            if let Some(mut weapon) = weapon {
+                weapon.set_firing(false);
+            }
         }
         return;
     };
     let player_pos = player_tf.translation;
     let dt = Duration::from_secs_f32(time.delta_secs());
 
-    for (tf, ship, energy, mut ai, mut input) in &mut enemies {
+    for (tf, ship, energy, mut ai, mut input, weapon) in &mut enemies {
         let dist_sq = tf.translation.distance_squared(player_pos);
         let energy_frac = if energy.max > 0.0 {
             energy.current / energy.max
@@ -184,6 +202,15 @@ pub(super) fn enemy_ai(
 
         input.rotation = Vec3::new(pitch, 0.0, roll); // yaw stays 0 (DL-011)
         input.throttle = throttle;
+
+        // Fire only while attacking, with the nose on the player and energy to
+        // spare. The weapon system handles the cooldown and the actual shot.
+        // Unarmed enemies still fly; they just never set a fire intent.
+        if let Some(mut weapon) = weapon {
+            let to_player = (player_pos - tf.translation).normalize_or_zero();
+            let on_target = tf.forward().as_vec3().dot(to_player) > FIRE_CONE_COS;
+            weapon.set_firing(ai.state == AiState::Attack && on_target && !low_energy);
+        }
     }
 }
 

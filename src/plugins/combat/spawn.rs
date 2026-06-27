@@ -12,6 +12,7 @@ use crate::plugins::flight::{Player, Ship};
 
 use super::ai::EnemyAi;
 use super::components::{Bounty, CollisionRadius, Enemy, Energy, Faction, Shields};
+use super::weapons::Weapon;
 
 /// Debug spawn key — press to drop a pirate enemy into the world for testing.
 const SPAWN_ENEMY_KEY: KeyCode = KeyCode::KeyB;
@@ -35,6 +36,7 @@ pub(super) fn init_player_combat(mut commands: Commands, player: Single<Entity, 
         Shields::default(),
         Energy::default(),
         CollisionRadius(PLAYER_RADIUS),
+        Weapon::pulse(),
     ));
 }
 
@@ -85,6 +87,7 @@ pub(super) fn spawn_enemy(
         Enemy,
         faction,
         EnemyAi::default(),
+        Weapon::pirate(),
         Ship::default(),
         Shields::default(),
         Energy::default(),
