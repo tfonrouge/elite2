@@ -205,7 +205,7 @@ fn is_near_identity(rotation: Quat) -> bool {
 #[test]
 fn pressing_y_toggles_yaw_assist() {
     // Exercises the *real* input path — `just_pressed(KeyCode::KeyY)` in
-    // `flight_controls` — which the resource-level yaw test bypasses. A mistyped
+    // `player_input` — which the resource-level yaw test bypasses. A mistyped
     // keycode or a `pressed`-vs-`just_pressed` slip would pass every other test
     // but fail here. We inject `KeyboardInput` messages the way winit does (a
     // manual `ButtonInput::press` is wiped by the keyboard system's per-frame
@@ -250,6 +250,15 @@ fn send_key(app: &mut App, key_code: KeyCode, state: ButtonState) {
     });
 }
 
+fn ship_speed(app: &mut App) -> f32 {
+    let mut query = app.world_mut().query_filtered::<&Ship, With<Player>>();
+    query
+        .iter(app.world())
+        .next()
+        .expect("a Player exists")
+        .speed
+}
+
 #[test]
 fn throttle_accelerates_the_ship_forward() {
     let mut app = timed_app(0.1);
@@ -261,14 +270,7 @@ fn throttle_accelerates_the_ship_forward() {
         app.update();
     }
 
-    let speed = {
-        let mut query = app.world_mut().query_filtered::<&Ship, With<Player>>();
-        query
-            .iter(app.world())
-            .next()
-            .expect("a Player exists")
-            .speed
-    };
+    let speed = ship_speed(&mut app);
     let z = player_transform(&mut app).translation.z;
 
     assert!(
@@ -276,6 +278,41 @@ fn throttle_accelerates_the_ship_forward() {
         "holding throttle-up should build speed, got {speed}"
     );
     assert!(z < 0.0, "the ship should move forward along -Z, got z={z}");
+}
+
+#[test]
+fn throttle_down_decelerates_the_ship() {
+    // The throttle path was rewritten from press-based to `axis(R, F)`-integrated;
+    // lock the *deceleration* direction (F lowers speed) the way the rotation test
+    // locks the pitch/roll signs. Also exercises release(R) so the two keys aren't
+    // both held (axis would net to zero).
+    let mut app = timed_app(0.1);
+    app.update(); // startup
+
+    // Build speed with throttle-up.
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyR);
+    for _ in 0..10 {
+        app.update();
+    }
+    let fast = ship_speed(&mut app);
+    assert!(fast > 0.0, "throttle-up should build speed, got {fast}");
+
+    // Switch to throttle-down.
+    {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.release(KeyCode::KeyR);
+        keys.press(KeyCode::KeyF);
+    }
+    for _ in 0..10 {
+        app.update();
+    }
+    let slow = ship_speed(&mut app);
+    assert!(
+        slow < fast,
+        "holding throttle-down should reduce speed: {slow} !< {fast}"
+    );
 }
 
 #[test]

@@ -32,6 +32,7 @@ Current modules:
 | `plugins/world`     | `WorldPlugin`     | Lighting + reference objects (ring station, asteroids)  |
 | `plugins/starfield` | `StarfieldPlugin` | Procedural starfield that tracks the player             |
 | `plugins/hud`       | `HudPlugin`       | Minimal flight HUD (speed, throttle, orientation)       |
+| `plugins/combat`    | `CombatPlugin`    | *(Phase 2, in progress)* weapons, damage, AI, spawning  |
 
 Cross-plugin sharing is limited to small marker/data types: `camera`, `hud`,
 and `starfield` reference `flight::{Player, Ship, FlightConfig}`. The cockpit
@@ -105,16 +106,24 @@ Ordered milestones (may be reprioritized).
   first-person cockpit camera, procedural starfield + reference objects (ring
   station, asteroids), minimal HUD (speed, throttle, orientation). Pure-logic
   unit tests for the flight/starfield math.
-- **Phase 1.5 — Gameplay spec & faithful-flight rework** ✅ *(current)*
+- **Phase 1.5 — Gameplay spec & faithful-flight rework** ✅
   Researched and documented the original 1984 *Elite* mechanics in
   [`GAMEPLAY.md`](GAMEPLAY.md) (the design baseline for all later phases);
   resolved the canonical version baseline (DL-010) and the no-yaw flight model
   (DL-011), reworking the Phase-1 controls to the faithful two-axis default with
   an optional yaw-assist toggle.
-- **Phase 2 — Combat** *(next; spec in [`GAMEPLAY.md`](GAMEPLAY.md) §10–§13)*
-  Per-view lasers (pulse/beam/mining/military), the squared-radius hit test,
-  missiles + ECM, shields-then-energy damage (no separate hull, per the
-  original), no-yaw enemy AI, destruction + cargo drops, the BBC-disc bestiary.
+- **Phase 2 — Combat** ⏳ *(current; spec in [`GAMEPLAY.md`](GAMEPLAY.md) §10–§13,
+  decisions DL-012…DL-017)*
+  Built as one full faithful slice. **Step 0 (prep):** `FlightConfig`
+  Resource→Component, the flight integrator `Single`→`Query` split into
+  player/AI movement, a `FlightSet::ReadInput` set before `Integrate`, and the
+  HUD reading `FlightConfig` from the player entity. **Combat:** per-view
+  instant-hit lasers (analytic ray-vs-sphere, DL-012), homing missiles + ECM
+  (DL-013), sphere-sphere collision (DL-014), shields→energy damage (no separate
+  hull), the full faithful enemy tactics routine (DL-015) with a hybrid evade
+  exit (DL-016), destruction + bounty→rank, and a debug command-spawn plus an
+  in-system spawn hook (DL-017). Combat events modelled as 0.18 **Messages**;
+  debug gizmos gated so the headless tests stay green.
 - **Phase 3 — The universe**
   Deterministic procedural galaxy from a seed (names, positions, economy/tech/
   government), galaxy & system map UI, hyperspace jumps.

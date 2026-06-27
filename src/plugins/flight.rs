@@ -25,8 +25,15 @@ use bevy::prelude::*;
 #[derive(Component)]
 pub struct Player;
 
-/// Dynamic flight state carried by the player's ship.
+/// Dynamic flight state carried by every ship — player and NPC alike.
+///
+/// `#[require(..)]` pulls in [`FlightConfig`] + [`FlightInput`]: spawning any
+/// entity with a `Ship` auto-inserts both (via their `Default`) unless the spawn
+/// bundle overrides them, so the shared [`ship_movement`] integrator — whose
+/// query needs all three — always matches. This structurally prevents the
+/// "spawned NPC never moves" trap that a partial bundle would otherwise cause.
 #[derive(Component, Debug, Default)]
+#[require(FlightConfig, FlightInput)]
 pub struct Ship {
     /// Throttle setting in `0.0..=1.0` (fraction of max speed).
     pub throttle: f32,
@@ -37,12 +44,11 @@ pub struct Ship {
     pub angular_velocity: Vec3,
 }
 
-/// Tunable flight characteristics, kept as a single global resource for Phase 1.
-///
-/// Per-ship-hull tuning later means a Resource → Component move plus
-/// generalizing the integrator from `Single<.. With<Player>>` to a `Query`;
-/// tracked as a known, deliberate Phase-1 shortcut in `DECISIONS.md` (DL-004).
-#[derive(Resource, Debug, Clone)]
+/// Tunable flight characteristics, **per ship** — a `Component`, not a global
+/// resource. The player and each NPC hull carry their own `FlightConfig`, so the
+/// shared [`ship_movement`] integrator flies them all. (This completes the DL-004
+/// Phase-2 prep: Resource → Component, `Single` → `Query`.)
+#[derive(Component, Debug, Clone)]
 pub struct FlightConfig {
     /// Top speed at full throttle, units/second.
     pub max_speed: f32,
@@ -75,6 +81,24 @@ impl Default for FlightConfig {
     }
 }
 
+/// Per-frame flight command for one ship, written by a controller (the player's
+/// [`player_input`], or — in Phase 2 — an AI controller) and consumed by the
+/// shared [`ship_movement`] integrator. Separating *what the pilot commands* from
+/// *how the hull responds* lets a single integrator fly the player and every NPC.
+///
+/// **Contract:** this is persistent state, not a transient event — the integrator
+/// reads it every frame and never clears it. A controller must therefore
+/// (re)write its ship's `FlightInput` every frame (or zero it on early-out), or
+/// the ship keeps flying the last command it was issued.
+#[derive(Component, Debug, Default)]
+pub struct FlightInput {
+    /// Commanded rotation in `-1.0..=1.0` about the local axes: `(pitch, yaw, roll)`.
+    /// The yaw component stays zero for the player unless [`YawAssist`] is on.
+    pub rotation: Vec3,
+    /// Commanded throttle change in `-1.0..=1.0` (player R/F, or AI).
+    pub throttle: f32,
+}
+
 /// Whether the optional **yaw-assist** axis is active (DL-011).
 ///
 /// The 1984 *Elite* Cobra has no yaw — flight is pitch + roll only — so this is
@@ -82,21 +106,27 @@ impl Default for FlightConfig {
 /// `Y` key) re-enables a yaw axis on `Q`/`E` for players who want it. When it is
 /// switched back off, any residual yaw rate damps to zero like every other axis.
 ///
-/// This is a global **player input mode**, not per-ship tuning, so it stays a
-/// `Resource` when the flight integrator later splits into player/AI systems
-/// (the DL-004 Phase-2 prep): it belongs to the player-input system, and AI
-/// movement never reads it.
+/// This is a global **player input mode**, not per-ship tuning, so it is a
+/// `Resource` (read only by [`player_input`]); the shared [`ship_movement`]
+/// integrator and any AI controller never touch it.
 #[derive(Resource, Debug, Default)]
 pub struct YawAssist {
     pub enabled: bool,
 }
 
-/// System set wrapping the flight integrator. Systems that *read* the player's
-/// `Transform` in the same frame (cockpit follow-readers, HUD, starfield) order
-/// themselves `.after(FlightSet::Integrate)` so they observe the current
-/// frame's motion rather than the previous frame's.
+/// Ordering for the flight pipeline. Controllers write each ship's
+/// [`FlightInput`] in `ReadInput`; the shared [`ship_movement`] integrator
+/// applies it in `Integrate`. Systems that *read* the player's `Transform` in the
+/// same frame (cockpit follow-readers, HUD, starfield) order themselves
+/// `.after(FlightSet::Integrate)` so they observe the current frame's motion.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FlightSet {
+    /// Controllers (player input, AI) write each ship's `FlightInput`. Any
+    /// controller — *including AI systems in other plugins* (e.g. combat) — must
+    /// join this set, so it writes before `ship_movement` integrates; otherwise
+    /// that ship integrates last frame's command (a one-frame input lag).
+    ReadInput,
+    /// The shared integrator applies `FlightInput` to motion.
     Integrate,
 }
 
@@ -104,10 +134,11 @@ pub struct FlightPlugin;
 
 impl Plugin for FlightPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<FlightConfig>()
-            .init_resource::<YawAssist>()
+        app.init_resource::<YawAssist>()
             .add_systems(Startup, spawn_player)
-            .add_systems(Update, flight_controls.in_set(FlightSet::Integrate));
+            .configure_sets(Update, (FlightSet::ReadInput, FlightSet::Integrate).chain())
+            .add_systems(Update, player_input.in_set(FlightSet::ReadInput))
+            .add_systems(Update, ship_movement.in_set(FlightSet::Integrate));
     }
 }
 
@@ -115,9 +146,11 @@ impl Plugin for FlightPlugin {
 /// reference station). The cockpit camera is mounted as a child of this entity
 /// by [`super::camera`] in `PostStartup`.
 fn spawn_player(mut commands: Commands) {
-    // `Visibility` (and the `InheritedVisibility`/`ViewVisibility` it requires)
-    // is included so visibility propagates consistently to the child cockpit
-    // camera — without it Bevy logs hierarchy warning B0004.
+    // `Ship` requires `FlightConfig` + `FlightInput` (see its docs), so the player
+    // gets the default Cobra tuning and a zeroed command without listing them.
+    // `Visibility` (and the `InheritedVisibility`/`ViewVisibility` it requires) is
+    // included so visibility propagates to the child cockpit camera — without it
+    // Bevy logs hierarchy warning B0004.
     commands.spawn((
         Player,
         Ship::default(),
@@ -126,27 +159,20 @@ fn spawn_player(mut commands: Commands) {
     ));
 }
 
-/// Read input and integrate the damped-arcade flight model for one frame.
-fn flight_controls(
-    time: Res<Time>,
+/// Read the keyboard and write the player's [`FlightInput`] for this frame.
+///
+/// Faithful two-axis default — pitch (W/S) and roll (A/D), plus throttle (R/F).
+/// `Y` toggles the optional yaw axis (DL-011); while on, Q/E command yaw.
+fn player_input(
     keys: Res<ButtonInput<KeyCode>>,
-    cfg: Res<FlightConfig>,
     mut yaw_assist: ResMut<YawAssist>,
-    player: Single<(&mut Transform, &mut Ship), With<Player>>,
+    mut input: Single<&mut FlightInput, With<Player>>,
 ) {
-    let dt = time.delta_secs();
-    let (mut transform, mut ship) = player.into_inner();
-
-    // `Y` toggles the optional yaw axis (DL-011); off by default for the faithful
-    // two-axis model. A just-flipped state takes effect the same frame.
+    // A just-flipped toggle takes effect the same frame.
     if keys.just_pressed(KeyCode::KeyY) {
         yaw_assist.enabled = !yaw_assist.enabled;
     }
 
-    // --- Rotation: ramp angular velocity toward the input target -----------
-    // Default axes are pitch (W/S) and roll (A/D). Yaw (Q/E) contributes only
-    // when yaw assist is on; otherwise its target is 0 and any residual yaw rate
-    // damps back to zero.
     let pitch_in = axis(&keys, KeyCode::KeyS, KeyCode::KeyW); // S nose-up, W nose-down
     let roll_in = axis(&keys, KeyCode::KeyA, KeyCode::KeyD); // A roll-left, D roll-right
     let yaw_in = if yaw_assist.enabled {
@@ -155,35 +181,42 @@ fn flight_controls(
         0.0
     };
 
-    let target = Vec3::new(
-        pitch_in * cfg.pitch_rate,
-        yaw_in * cfg.yaw_rate,
-        roll_in * cfg.roll_rate,
-    );
-    // Exponential smoothing toward the target; with target = 0 (no input) this
-    // damps the ship back to a stop — the "auto-stabilize" of the arcade model.
-    let blend = 1.0 - (-cfg.turn_responsiveness * dt).exp();
-    ship.angular_velocity = ship.angular_velocity.lerp(target, blend);
+    input.rotation = Vec3::new(pitch_in, yaw_in, roll_in);
+    input.throttle = axis(&keys, KeyCode::KeyR, KeyCode::KeyF); // R up, F down
+}
 
-    transform.rotate_local_x(ship.angular_velocity.x * dt);
-    transform.rotate_local_y(ship.angular_velocity.y * dt);
-    transform.rotate_local_z(ship.angular_velocity.z * dt);
+/// Integrate the damped-arcade flight model for **every** ship from its
+/// [`FlightInput`] + [`FlightConfig`]. Shared by the player and all NPCs, so
+/// behaviour is identical whoever (or whatever) is at the controls.
+fn ship_movement(
+    time: Res<Time>,
+    mut ships: Query<(&mut Transform, &mut Ship, &FlightConfig, &FlightInput)>,
+) {
+    let dt = time.delta_secs();
+    for (mut transform, mut ship, cfg, input) in &mut ships {
+        // Ramp angular velocity toward the commanded target; with a zero command
+        // this damps back to a stop — the "auto-stabilize" of the arcade model.
+        let target = Vec3::new(
+            input.rotation.x * cfg.pitch_rate,
+            input.rotation.y * cfg.yaw_rate,
+            input.rotation.z * cfg.roll_rate,
+        );
+        let blend = 1.0 - (-cfg.turn_responsiveness * dt).exp();
+        ship.angular_velocity = ship.angular_velocity.lerp(target, blend);
 
-    // --- Throttle and forward speed ----------------------------------------
-    if keys.pressed(KeyCode::KeyR) {
-        ship.throttle += cfg.throttle_rate * dt;
+        transform.rotate_local_x(ship.angular_velocity.x * dt);
+        transform.rotate_local_y(ship.angular_velocity.y * dt);
+        transform.rotate_local_z(ship.angular_velocity.z * dt);
+
+        // Throttle and forward speed.
+        ship.throttle = (ship.throttle + input.throttle * cfg.throttle_rate * dt).clamp(0.0, 1.0);
+        let target_speed = ship.throttle * cfg.max_speed;
+        ship.speed = move_toward(ship.speed, target_speed, cfg.acceleration * dt);
+
+        // Translate along the ship's local forward axis.
+        let forward = transform.forward();
+        transform.translation += forward * (ship.speed * dt);
     }
-    if keys.pressed(KeyCode::KeyF) {
-        ship.throttle -= cfg.throttle_rate * dt;
-    }
-    ship.throttle = ship.throttle.clamp(0.0, 1.0);
-
-    let target_speed = ship.throttle * cfg.max_speed;
-    ship.speed = move_toward(ship.speed, target_speed, cfg.acceleration * dt);
-
-    // --- Translate along the ship's local forward axis ---------------------
-    let forward = transform.forward();
-    transform.translation += forward * (ship.speed * dt);
 }
 
 /// Returns `+1`, `-1`, or `0` from a pair of held keys.

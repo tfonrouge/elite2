@@ -40,11 +40,10 @@ fn setup_hud(mut commands: Commands) {
 }
 
 fn update_hud(
-    cfg: Res<FlightConfig>,
-    player: Single<(&Transform, &Ship), With<Player>>,
+    player: Single<(&Transform, &Ship, &FlightConfig), With<Player>>,
     mut hud: Single<&mut Text, With<HudText>>,
 ) {
-    let (transform, ship) = player.into_inner();
+    let (transform, ship, cfg) = player.into_inner();
     // EulerRot::YXZ decomposes to (yaw, pitch, roll). This is an *indicative*
     // readout only: near pitch = ±90° the YXZ extraction hits gimbal lock and
     // yaw/roll can jump. The flight model is quaternion-driven, so flight itself
