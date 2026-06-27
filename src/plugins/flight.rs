@@ -3,11 +3,15 @@
 //! Flight model: **damped arcade** (chosen in DESIGN.md). Throttle sets a
 //! target speed the ship accelerates toward; rotation is driven by an angular
 //! velocity that ramps toward the player's input and *damps back to zero when
-//! the input is released*, so the ship self-stabilizes. All rotation is in the
-//! ship's local frame (pitch/yaw/roll relative to where the nose points), and
-//! the ship always moves along its own forward axis.
+//! the input is released*, so the ship self-stabilizes. Rotation is in the
+//! ship's local frame — **pitch and roll by default**, plus an *optional* yaw
+//! axis (see [`YawAssist`]) — and the ship always moves along its own forward
+//! axis.
 //!
-//! Controls (cockpit): W/S pitch · A/D yaw · Q/E roll · R/F throttle ±.
+//! Controls (cockpit): **W/S pitch · A/D roll · R/F throttle ±**. The 1984 Cobra
+//! flies on two rotational axes only — pitch and roll, *no yaw* (DL-011) — so yaw
+//! is off by default. Pressing `Y` toggles a "yaw assist" mode that adds
+//! **Q/E yaw** for players who want a third axis.
 
 use bevy::prelude::*;
 
@@ -29,6 +33,7 @@ pub struct Ship {
     /// Current forward speed in units/second.
     pub speed: f32,
     /// Angular velocity in rad/s about the local axes: `(pitch, yaw, roll)`.
+    /// The yaw component stays zero unless [`YawAssist`] is enabled (DL-011).
     pub angular_velocity: Vec3,
 }
 
@@ -70,6 +75,22 @@ impl Default for FlightConfig {
     }
 }
 
+/// Whether the optional **yaw-assist** axis is active (DL-011).
+///
+/// The 1984 *Elite* Cobra has no yaw — flight is pitch + roll only — so this is
+/// **off by default**, giving the faithful two-axis model. Toggling it on (the
+/// `Y` key) re-enables a yaw axis on `Q`/`E` for players who want it. When it is
+/// switched back off, any residual yaw rate damps to zero like every other axis.
+///
+/// This is a global **player input mode**, not per-ship tuning, so it stays a
+/// `Resource` when the flight integrator later splits into player/AI systems
+/// (the DL-004 Phase-2 prep): it belongs to the player-input system, and AI
+/// movement never reads it.
+#[derive(Resource, Debug, Default)]
+pub struct YawAssist {
+    pub enabled: bool,
+}
+
 /// System set wrapping the flight integrator. Systems that *read* the player's
 /// `Transform` in the same frame (cockpit follow-readers, HUD, starfield) order
 /// themselves `.after(FlightSet::Integrate)` so they observe the current
@@ -84,6 +105,7 @@ pub struct FlightPlugin;
 impl Plugin for FlightPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FlightConfig>()
+            .init_resource::<YawAssist>()
             .add_systems(Startup, spawn_player)
             .add_systems(Update, flight_controls.in_set(FlightSet::Integrate));
     }
@@ -109,15 +131,29 @@ fn flight_controls(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     cfg: Res<FlightConfig>,
+    mut yaw_assist: ResMut<YawAssist>,
     player: Single<(&mut Transform, &mut Ship), With<Player>>,
 ) {
     let dt = time.delta_secs();
     let (mut transform, mut ship) = player.into_inner();
 
+    // `Y` toggles the optional yaw axis (DL-011); off by default for the faithful
+    // two-axis model. A just-flipped state takes effect the same frame.
+    if keys.just_pressed(KeyCode::KeyY) {
+        yaw_assist.enabled = !yaw_assist.enabled;
+    }
+
     // --- Rotation: ramp angular velocity toward the input target -----------
+    // Default axes are pitch (W/S) and roll (A/D). Yaw (Q/E) contributes only
+    // when yaw assist is on; otherwise its target is 0 and any residual yaw rate
+    // damps back to zero.
     let pitch_in = axis(&keys, KeyCode::KeyS, KeyCode::KeyW); // S nose-up, W nose-down
-    let yaw_in = axis(&keys, KeyCode::KeyA, KeyCode::KeyD); // A left, D right
-    let roll_in = axis(&keys, KeyCode::KeyQ, KeyCode::KeyE); // Q left, E right
+    let roll_in = axis(&keys, KeyCode::KeyA, KeyCode::KeyD); // A roll-left, D roll-right
+    let yaw_in = if yaw_assist.enabled {
+        axis(&keys, KeyCode::KeyQ, KeyCode::KeyE) // Q yaw-left, E yaw-right (assist only)
+    } else {
+        0.0
+    };
 
     let target = Vec3::new(
         pitch_in * cfg.pitch_rate,

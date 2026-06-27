@@ -13,13 +13,15 @@
 use std::time::Duration;
 
 use bevy::asset::AssetPlugin;
+use bevy::input::ButtonState;
 use bevy::input::InputPlugin;
+use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 
 use crate::plugins::camera::CockpitCamera;
 use crate::plugins::core::CorePlugin;
-use crate::plugins::flight::{Player, Ship};
+use crate::plugins::flight::{Player, Ship, YawAssist};
 use crate::plugins::hud::HudText;
 use crate::plugins::starfield::StarfieldRoot;
 use crate::plugins::{
@@ -128,24 +130,26 @@ fn player_transform(app: &mut App) -> Transform {
 }
 
 #[test]
-fn control_directions_match_the_documented_mapping() {
-    // The pitch/yaw/roll signs are the contract the whole flight feel rests on.
-    // A future flip in `axis()` or a swapped `KeyCode` would otherwise pass
-    // fmt/clippy/build/test and silently invert a control.
-    let cases: [(KeyCode, fn(Vec3, Vec3) -> bool, &str); 6] = [
-        (KeyCode::KeyW, |fwd, _up| fwd.y < 0.0, "W = nose down (-Y)"),
-        (KeyCode::KeyS, |fwd, _up| fwd.y > 0.0, "S = nose up (+Y)"),
-        (KeyCode::KeyA, |fwd, _up| fwd.x < 0.0, "A = yaw left (-X)"),
-        (KeyCode::KeyD, |fwd, _up| fwd.x > 0.0, "D = yaw right (+X)"),
+fn default_controls_are_pitch_and_roll_with_no_yaw() {
+    // The faithful 1984 flight model is two-axis: pitch + roll, NO yaw (DL-011).
+    // W/S pitch and A/D roll; Q/E (the yaw-assist keys) must produce *no*
+    // rotation until assist is toggled on. These signs are the contract the
+    // whole flight feel rests on — a flip in `axis()` or a swapped `KeyCode`
+    // would otherwise pass fmt/clippy/build and silently invert a control.
+    let cases: [(KeyCode, fn(Transform) -> bool, &str); 6] = [
+        (KeyCode::KeyW, |t| t.forward().y < 0.0, "W = nose down (-Y)"),
+        (KeyCode::KeyS, |t| t.forward().y > 0.0, "S = nose up (+Y)"),
+        (KeyCode::KeyA, |t| t.up().x < 0.0, "A = roll left (up -X)"),
+        (KeyCode::KeyD, |t| t.up().x > 0.0, "D = roll right (up +X)"),
         (
             KeyCode::KeyQ,
-            |_fwd, up| up.x < 0.0,
-            "Q = roll left (up -X)",
+            |t| is_near_identity(t.rotation),
+            "Q = no yaw by default",
         ),
         (
             KeyCode::KeyE,
-            |_fwd, up| up.x > 0.0,
-            "E = roll right (up +X)",
+            |t| is_near_identity(t.rotation),
+            "E = no yaw by default",
         ),
     ];
 
@@ -158,12 +162,92 @@ fn control_directions_match_the_documented_mapping() {
         app.update(); // one 0.2 s step with the control held
 
         let t = player_transform(&mut app);
-        let (fwd, up) = (t.forward().as_vec3(), t.up().as_vec3());
         assert!(
-            predicate(fwd, up),
-            "wrong control direction for {description}: forward={fwd:?} up={up:?}"
+            predicate(t),
+            "wrong control for {description}: rot={:?} forward={:?} up={:?}",
+            t.rotation,
+            t.forward(),
+            t.up()
         );
     }
+}
+
+#[test]
+fn yaw_assist_toggle_adds_yaw_on_qe() {
+    // With yaw assist enabled (DL-011), Q/E re-enable a yaw axis. We set the
+    // resource directly rather than simulating the `Y` keypress so the test
+    // doesn't depend on `just_pressed` edge timing across the headless schedule.
+    let cases: [(KeyCode, fn(f32) -> bool, &str); 2] = [
+        (KeyCode::KeyQ, |x| x < 0.0, "Q = yaw left (forward -X)"),
+        (KeyCode::KeyE, |x| x > 0.0, "E = yaw right (forward +X)"),
+    ];
+
+    for (key, predicate, description) in cases {
+        let mut app = timed_app(0.2);
+        app.update();
+        app.world_mut().resource_mut::<YawAssist>().enabled = true;
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(key);
+        app.update();
+
+        let fwd_x = player_transform(&mut app).forward().x;
+        assert!(predicate(fwd_x), "{description}: forward.x={fwd_x}");
+    }
+}
+
+/// True when a rotation is within a tiny tolerance of no rotation at all — used
+/// to assert that the yaw keys leave attitude untouched while assist is off.
+fn is_near_identity(rotation: Quat) -> bool {
+    rotation.angle_between(Quat::IDENTITY) < 1.0e-3
+}
+
+#[test]
+fn pressing_y_toggles_yaw_assist() {
+    // Exercises the *real* input path — `just_pressed(KeyCode::KeyY)` in
+    // `flight_controls` — which the resource-level yaw test bypasses. A mistyped
+    // keycode or a `pressed`-vs-`just_pressed` slip would pass every other test
+    // but fail here. We inject `KeyboardInput` messages the way winit does (a
+    // manual `ButtonInput::press` is wiped by the keyboard system's per-frame
+    // clear before `Update` runs); `just_pressed` only fires on a fresh press, so
+    // we release between the two toggles.
+    let mut app = timed_app(0.2);
+    app.update(); // startup
+    assert!(
+        !app.world().resource::<YawAssist>().enabled,
+        "yaw assist starts off (faithful no-yaw default)"
+    );
+
+    send_key(&mut app, KeyCode::KeyY, ButtonState::Pressed);
+    app.update();
+    assert!(
+        app.world().resource::<YawAssist>().enabled,
+        "first Y press enables yaw assist"
+    );
+
+    send_key(&mut app, KeyCode::KeyY, ButtonState::Released);
+    app.update();
+    send_key(&mut app, KeyCode::KeyY, ButtonState::Pressed);
+    app.update();
+    assert!(
+        !app.world().resource::<YawAssist>().enabled,
+        "a second Y press toggles yaw assist back off"
+    );
+}
+
+/// Inject a keyboard event the way the windowing backend does, so the keyboard
+/// system sets `just_pressed`/`just_released` for the frame. `logical_key` is
+/// irrelevant to the key-code path, so we use the trivially-constructed
+/// `Key::Dead(None)`.
+fn send_key(app: &mut App, key_code: KeyCode, state: ButtonState) {
+    app.world_mut().write_message(KeyboardInput {
+        key_code,
+        logical_key: Key::Dead(None),
+        state,
+        text: None,
+        repeat: false,
+        window: Entity::PLACEHOLDER,
+    });
 }
 
 #[test]

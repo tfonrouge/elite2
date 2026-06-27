@@ -41,7 +41,13 @@ camera mounts in `PostStartup` so the ship (spawned in `Startup`) already exists
 
 > The formal ledger — with alternatives considered, who approved each decision,
 > and a falsification condition per decision — lives in
-> [`DECISIONS.md`](DECISIONS.md). The summary below is the quick reference.
+> [`DECISIONS.md`](DECISIONS.md). The faithful gameplay spec (what the original
+> game *is*, with verified data tables) lives in [`GAMEPLAY.md`](GAMEPLAY.md). The
+> summary below is the quick reference.
+
+- **Canonical version baseline = BBC disc / enhanced superset** (DL-010): the
+  remake targets the disc/enhanced BBC original (missions, mining, full laser
+  line-up), excluding port-only extras; a `cassette-pure` mode is a later toggle.
 
 - **Bevy version: pinned to exactly `=0.18.1`** (latest stable as of project
   start; verified against crates.io). Bevy's API changes between releases, so a
@@ -66,11 +72,16 @@ camera mounts in `PostStartup` so the ship (spawned in `Startup`) already exists
   angular velocity as three sequential local rotations per frame is a minor
   arcade approximation, since rotations don't commute). A Newtonian /
   flight-assist-off mode is a possible later toggle.
+- **Flight axes = faithful no-yaw default + yaw-assist toggle** (DL-011). The 1984
+  original has **no yaw** (pitch + roll only); the default flight model matches it,
+  with an optional yaw-assist mode behind a toggle. This reworks the three-axis
+  control shipped in the initial Phase 1 slice; the damped-arcade model is intact.
 - **Camera = first-person cockpit** (Phase 1, decided). Mounted as a child of
   the ship so transform propagation handles the follow; no per-frame sync.
-- **Controls (Phase 1):** keyboard — W/S pitch, A/D yaw, Q/E roll, R/F throttle.
-  Verified against Bevy's rotation math (W = nose down, A = yaw left, Q = roll
-  left). Mouse/gamepad and an invert-pitch option are later additions.
+- **Controls:** keyboard — **W/S pitch, A/D roll, R/F throttle** by default; with
+  yaw assist on (toggle `Y`), **Q/E add yaw**. Verified against Bevy's rotation
+  math (W = nose down, A = roll left, Q = yaw left). Mouse/gamepad and an
+  invert-pitch option are later additions.
 - **Starfield approach:** stars on a Fibonacci-lattice sphere shell, parented to
   a root that tracks the player's *translation only*. Result: no translation
   parallax (distant-star feel) but rotation reads clearly. Deterministic, no RNG
@@ -89,14 +100,21 @@ Ordered milestones (may be reprioritized).
 - **Phase 0 — Foundations** ✅
   Cargo project, pinned Bevy, plugin skeleton, a window that opens and renders,
   cross-platform CI with per-platform artifacts, README/DESIGN/CLAUDE docs.
-- **Phase 1 — Flight vertical slice** ✅ *(current)*
-  Controllable ship in 3D (thrust/pitch/yaw/roll, damped-arcade model),
+- **Phase 1 — Flight vertical slice** ✅
+  Controllable ship in 3D (thrust/pitch/roll, damped-arcade model),
   first-person cockpit camera, procedural starfield + reference objects (ring
   station, asteroids), minimal HUD (speed, throttle, orientation). Pure-logic
   unit tests for the flight/starfield math.
-- **Phase 2 — Combat**
-  Weapons (projectile/hitscan), targeting, basic enemy AI (approach/attack/
-  evade), shields + hull, destruction.
+- **Phase 1.5 — Gameplay spec & faithful-flight rework** ✅ *(current)*
+  Researched and documented the original 1984 *Elite* mechanics in
+  [`GAMEPLAY.md`](GAMEPLAY.md) (the design baseline for all later phases);
+  resolved the canonical version baseline (DL-010) and the no-yaw flight model
+  (DL-011), reworking the Phase-1 controls to the faithful two-axis default with
+  an optional yaw-assist toggle.
+- **Phase 2 — Combat** *(next; spec in [`GAMEPLAY.md`](GAMEPLAY.md) §10–§13)*
+  Per-view lasers (pulse/beam/mining/military), the squared-radius hit test,
+  missiles + ECM, shields-then-energy damage (no separate hull, per the
+  original), no-yaw enemy AI, destruction + cargo drops, the BBC-disc bestiary.
 - **Phase 3 — The universe**
   Deterministic procedural galaxy from a seed (names, positions, economy/tech/
   government), galaxy & system map UI, hyperspace jumps.

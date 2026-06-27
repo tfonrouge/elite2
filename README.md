@@ -52,12 +52,16 @@ procedural starfield, with a flight HUD in the top-left. Close the window to exi
 | Keys  | Action            |
 | ----- | ----------------- |
 | W / S | Pitch (nose down / up) |
-| A / D | Yaw (left / right) |
-| Q / E | Roll (left / right) |
+| A / D | Roll (left / right) |
 | R / F | Throttle (increase / decrease) |
+| Y     | Toggle **yaw assist** (off by default) |
+| Q / E | Yaw (left / right) — only while yaw assist is on |
 
 The flight model is **damped arcade**: throttle sets a target speed the ship
-eases toward, and rotation self-stabilizes when you release the keys.
+eases toward, and rotation self-stabilizes when you release the keys. Faithful to
+the 1984 original, the ship flies on **two axes — pitch and roll, no yaw**; an
+optional yaw-assist mode (`Y`) adds a yaw axis for those who want it. See
+[`GAMEPLAY.md`](GAMEPLAY.md) for the full faithful-gameplay spec.
 
 ### Faster iteration during development
 

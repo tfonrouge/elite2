@@ -63,6 +63,9 @@ Decided by · Falsification condition**. Status is `ACCEPTED` until superseded.
   Newtonian can be added later behind a toggle.
 - **Decided by:** **user-approved** (explicit options prompt: damped-arcade vs.
   Newtonian vs. hybrid).
+- **Axis update (see DL-011):** the *number of rotational axes* (whether yaw
+  exists) is revisited in DL-011 — faithful no-yaw becomes the default. The
+  damped-arcade *integration model* recorded here stands unchanged.
 - **Known shortcut:** per-entity state is on the `Ship` component, but tuning is
   a single global `FlightConfig` resource and the integrator is gated to
   `Single<.. With<Player>>`. A second ship hull or AI ship means a Resource →
@@ -150,6 +153,53 @@ Decided by · Falsification condition**. Status is `ACCEPTED` until superseded.
   asteroids gain a mining/field system (later). Until then, the "placeholder /
   stand-in" labeling in `world.rs` must stay honest — undocumented placeholder
   content shipping as if final would be the violation.
+
+## DL-010 — Canonical version baseline = BBC disc / enhanced superset · ACCEPTED (Phase 1.5, gameplay design)
+
+- **Context:** "the 1984 game" is not one artifact — the cassette, BBC **disc**,
+  the Acorn **Electron**, and the home-computer **ports** (C64, NES, Spectrum,
+  Archimedes…) differ in the buy list, mining, missions, bestiary, and docking.
+  A faithful remake must fix one canonical feature set, because the choice cuts
+  across nearly every subsystem (see `GAMEPLAY.md` §2).
+- **Alternatives considered:** **cassette-pure** (pulse+beam only, no missions, no
+  mining, instant docking); **defer** the decision to Phase 3; **track a specific
+  port** (e.g. C64, which adds Trumbles + a soundtrack).
+- **Decision:** the **BBC disc / enhanced superset** is canonical — it has the
+  missions (Constrictor, Thargoid Plans), asteroid mining + Rock Hermit, and the
+  full laser line-up (incl. military/mining), but **excludes** port-only extras
+  (Blue Danube docking music, Trumbles, soundtracks, port-only missions). A
+  `cassette-pure` mode can be a later toggle.
+- **Rationale:** the fullest expression of the game on its *native* hardware;
+  maximises faithful content without importing port-era additions that aren't
+  "the BBC original".
+- **Decided by:** **user-approved** (explicit options prompt: disc-superset vs.
+  cassette-pure vs. defer).
+- **Falsification condition:** disc-only content proves to need port-era specs we
+  cannot source from primary references, or the Owner wants strict cassette
+  fidelity → fall back to the `cassette-pure` baseline.
+
+## DL-011 — Flight axes = faithful no-yaw default + optional yaw-assist toggle · ACCEPTED (Phase 1.5)
+
+- **Context:** the 1984 Cobra Mk III has only **pitch + roll** (no yaw); aiming is
+  "roll the target into the pitch plane, then pitch onto it". Phase 1 shipped
+  roll + pitch + **yaw** (DL-004, A/D = yaw). The project mandate is faithfulness
+  to the original, so the extra axis conflicts with shipped code
+  (see `GAMEPLAY.md` §8).
+- **Alternatives considered:** **keep 3-axis yaw** (modern arcade feel, diverges
+  from the original's defining handling); **strict no-yaw** with no toggle at all.
+- **Decision:** **no-yaw (pitch + roll + throttle) is the default**; an optional
+  **"yaw assist" mode behind a toggle** re-enables a yaw axis for players who want
+  it. Default control map becomes **W/S = pitch, A/D = roll, R/F = throttle**, with
+  **Q/E = yaw only while assist is on** (toggle key `Y`). The damped-arcade
+  integration model (DL-004) is unchanged — only the available axes change.
+- **Rationale:** preserves the original's defining flight feel by default while
+  keeping a modern accessibility option; aligns combat aiming, enemy AI, and the
+  docking roll-match with the faithful 2-axis model.
+- **Decided by:** **user-approved** (explicit options prompt: faithful-drop-yaw
+  vs. keep-3-axis vs. hybrid).
+- **Falsification condition:** hands-on playtesting shows no-yaw-default is too
+  hard with a keyboard / modern expectations and players keep the assist on by
+  default → reconsider making yaw the default (or revisit the control mapping).
 
 ---
 

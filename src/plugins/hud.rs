@@ -55,7 +55,7 @@ fn update_hud(
         "ELITE — flight test\n\
          SPD {:>4.0} / {:.0}    THR {:>3.0}%\n\
          PITCH {:>4.0}   YAW {:>4.0}   ROLL {:>4.0}\n\
-         [W/S pitch  A/D yaw  Q/E roll  R/F throttle]",
+         [W/S pitch  A/D roll  R/F throttle  Y:yaw-assist]",
         ship.speed,
         cfg.max_speed,
         ship.throttle * 100.0,
