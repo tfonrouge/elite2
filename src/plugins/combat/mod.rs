@@ -21,6 +21,7 @@ pub mod ai;
 mod collision;
 pub mod components;
 pub mod events;
+pub mod readout;
 mod spawn;
 mod survival;
 mod weapons;
@@ -78,9 +79,13 @@ impl Plugin for CombatPlugin {
                     .after(FlightSet::Integrate),
             )
             .add_systems(PostStartup, spawn::init_player_combat)
+            .add_systems(Startup, readout::setup_combat_hud)
             // The enemy AI writes each enemy's FlightInput, so it joins the flight
             // ReadInput set (before the integrator), per that set's contract.
             .add_systems(Update, ai::enemy_ai.in_set(FlightSet::ReadInput))
+            // The combat readout refreshes after the whole combat pipeline so it
+            // reflects this frame's damage.
+            .add_systems(Update, readout::update_combat_hud.after(CombatSet::Cleanup))
             .add_systems(
                 Update,
                 (
