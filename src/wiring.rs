@@ -3,16 +3,18 @@
 //! Boots the game's plugins with a *minimal* (no-window, no-GPU) Bevy app and
 //! checks two things without a display:
 //! - **Wiring:** the scene graph materializes — exactly one `Player`, one
-//!   cockpit camera mounted as its child, one HUD, one starfield root (guarding
-//!   the single-player Phase 1 invariant and the `PostStartup` camera mount).
+//!   cockpit camera mounted as its child (carrying a `Skybox`), one HUD, one
+//!   combat readout (guarding the single-player invariant and the `PostStartup`
+//!   camera mount).
 //! - **Behavior:** with a fixed timestep and synthesized key presses, the
-//!   control directions, throttle→forward motion, and the starfield
-//!   translation-only follow (DL-006) hold — turning those contracts from
-//!   "verified by reasoning" into enforced invariants.
+//!   control directions, throttle→forward motion, flight, and combat invariants
+//!   hold — turning those contracts from "verified by reasoning" into enforced
+//!   invariants.
 
 use std::time::Duration;
 
 use bevy::asset::AssetPlugin;
+use bevy::core_pipeline::Skybox;
 use bevy::input::ButtonState;
 use bevy::input::InputPlugin;
 use bevy::input::keyboard::{Key, KeyboardInput};
@@ -26,13 +28,12 @@ use crate::plugins::combat::components::{
     Bounty, CollisionRadius, Enemy, Energy, Faction, Shields,
 };
 use crate::plugins::combat::events::ShipDestroyed;
+use crate::plugins::combat::readout::CombatReadout;
 use crate::plugins::core::CorePlugin;
 use crate::plugins::flight::{FlightInput, Player, Ship, YawAssist};
 use crate::plugins::hud::HudText;
-use crate::plugins::starfield::StarfieldRoot;
 use crate::plugins::{
-    camera::CameraPlugin, flight::FlightPlugin, hud::HudPlugin, starfield::StarfieldPlugin,
-    world::WorldPlugin,
+    camera::CameraPlugin, flight::FlightPlugin, hud::HudPlugin, world::WorldPlugin,
 };
 
 /// Build the same plugin stack `main` uses, but on a headless app: no window,
@@ -46,12 +47,14 @@ fn headless_app() -> App {
         .add_plugins(InputPlugin)
         .init_asset::<Mesh>()
         .init_asset::<StandardMaterial>()
+        // `ImagePlugin` (which registers `Assets<Image>`) is DefaultPlugins-only,
+        // so register it explicitly for the camera's runtime skybox cubemap.
+        .init_asset::<Image>()
         .add_plugins((
             CorePlugin,
             FlightPlugin,
             CameraPlugin,
             WorldPlugin,
-            StarfieldPlugin,
             HudPlugin,
             CombatPlugin,
         ));
@@ -82,9 +85,26 @@ fn wiring_spawns_exactly_one_of_each_singleton() {
     );
     assert_eq!(count::<With<HudText>>(&mut app), 1, "exactly one HUD text");
     assert_eq!(
-        count::<With<StarfieldRoot>>(&mut app),
+        count::<With<CombatReadout>>(&mut app),
         1,
-        "exactly one starfield root"
+        "exactly one combat readout"
+    );
+}
+
+#[test]
+fn cockpit_camera_carries_a_skybox() {
+    // The deep-space background (DL-018) is a `Skybox` on the cockpit camera,
+    // built from a runtime cubemap. This also proves the camera mount runs
+    // headless (it needs `Assets<Image>` for the cubemap).
+    let mut app = headless_app();
+    app.update(); // PostStartup mounts the camera with its Skybox
+
+    let mut query = app
+        .world_mut()
+        .query_filtered::<(), (With<CockpitCamera>, With<Skybox>)>();
+    assert!(
+        query.iter(app.world()).next().is_some(),
+        "the cockpit camera carries a Skybox"
     );
 }
 
@@ -410,6 +430,45 @@ fn distant_ships_do_not_collide() {
     let other_shields = *app.world().get::<Shields>(other).expect("other ship");
     assert_eq!(other_shields.fore, 64.0, "no collision at range");
     assert_eq!(other_shields.aft, 64.0, "no collision at range");
+}
+
+fn combat_readout_text(app: &mut App) -> String {
+    let mut query = app
+        .world_mut()
+        .query_filtered::<&Text, With<CombatReadout>>();
+    query
+        .iter(app.world())
+        .next()
+        .expect("the combat readout exists")
+        .0
+        .clone()
+}
+
+#[test]
+fn combat_readout_shows_shields_and_target_contacts() {
+    let mut app = headless_app();
+    app.update();
+
+    // With no enemies: the player's shields are shown and there is no target.
+    let no_contacts = combat_readout_text(&mut app);
+    assert!(
+        no_contacts.contains("SHIELDS"),
+        "readout shows the player's shields, got: {no_contacts:?}"
+    );
+    assert!(
+        no_contacts.contains("no contacts"),
+        "no target when there are no enemies, got: {no_contacts:?}"
+    );
+
+    // Spawn a pirate → a target contact appears.
+    send_key(&mut app, KeyCode::KeyB, ButtonState::Pressed);
+    app.update();
+    app.update();
+    let with_contact = combat_readout_text(&mut app);
+    assert!(
+        !with_contact.contains("no contacts"),
+        "a target appears once an enemy exists, got: {with_contact:?}"
+    );
 }
 
 #[test]
@@ -825,46 +884,5 @@ fn throttle_down_decelerates_the_ship() {
     assert!(
         slow < fast,
         "holding throttle-down should reduce speed: {slow} !< {fast}"
-    );
-}
-
-#[test]
-fn starfield_root_follows_translation_but_not_rotation() {
-    // DL-006: the root copies the player's translation only. Copying rotation
-    // too would defeat the "rotation reads, no translation parallax" design.
-    let mut app = timed_app(0.05);
-    app.update(); // spawn ship + starfield
-
-    let target = Vec3::new(123.0, -45.0, 67.0);
-    {
-        let mut query = app
-            .world_mut()
-            .query_filtered::<&mut Transform, With<Player>>();
-        let mut iter = query.iter_mut(app.world_mut());
-        let mut player = iter.next().expect("a Player exists");
-        player.translation = target;
-        player.rotation = Quat::from_rotation_y(1.0); // arbitrary, non-identity
-    }
-    app.update(); // follow_player runs
-
-    let root = {
-        let mut query = app
-            .world_mut()
-            .query_filtered::<&Transform, With<StarfieldRoot>>();
-        *query
-            .iter(app.world())
-            .next()
-            .expect("a StarfieldRoot exists")
-    };
-
-    assert!(
-        (root.translation - target).length() < 1e-4,
-        "root should follow the player's translation, got {:?}",
-        root.translation
-    );
-    assert_eq!(
-        root.rotation,
-        Quat::IDENTITY,
-        "root must NOT inherit the player's rotation"
     );
 }

@@ -30,13 +30,14 @@ Current modules:
 | `plugins/flight`    | `FlightPlugin`    | Player ship, `FlightConfig`, damped-arcade flight model |
 | `plugins/camera`    | `CameraPlugin`    | First-person cockpit camera (child of the ship)         |
 | `plugins/world`     | `WorldPlugin`     | Lighting + reference objects (ring station, asteroids)  |
-| `plugins/starfield` | `StarfieldPlugin` | Procedural starfield that tracks the player             |
+| `plugins/skybox`    | *(camera helper)* | Deep-space background: a `Skybox` cubemap (DL-018)       |
 | `plugins/hud`       | `HudPlugin`       | Minimal flight HUD (speed, throttle, orientation)       |
 | `plugins/combat`    | `CombatPlugin`    | *(Phase 2, in progress)* weapons, damage, AI, spawning  |
 
-Cross-plugin sharing is limited to small marker/data types: `camera`, `hud`,
-and `starfield` reference `flight::{Player, Ship, FlightConfig}`. The cockpit
-camera mounts in `PostStartup` so the ship (spawned in `Startup`) already exists.
+Cross-plugin sharing is limited to small marker/data types: `camera`, `hud`, and
+`combat` reference `flight::{Player, Ship, FlightConfig}`. The cockpit camera
+mounts in `PostStartup` (so the ship, spawned in `Startup`, already exists) and
+carries the `Skybox` cubemap built by `skybox`.
 
 ## Decision log
 
@@ -83,10 +84,11 @@ camera mounts in `PostStartup` so the ship (spawned in `Startup`) already exists
   yaw assist on (toggle `Y`), **Q/E add yaw**. Verified against Bevy's rotation
   math (W = nose down, A = roll left, Q = yaw left). Mouse/gamepad and an
   invert-pitch option are later additions.
-- **Starfield approach:** stars on a Fibonacci-lattice sphere shell, parented to
-  a root that tracks the player's *translation only*. Result: no translation
-  parallax (distant-star feel) but rotation reads clearly. Deterministic, no RNG
-  crate.
+- **Sky background = `Skybox` cubemap** (DL-018, supersedes the original
+  Fibonacci point-starfield). A cubemap on the HDR + bloom cockpit camera: turning
+  the ship reveals the sky, translation shows no parallax. A runtime-generated
+  placeholder cubemap (stars + a faint band) stands in for a real astronomical
+  image, swapped in later.
 
 ### Decisions still open (raise before committing)
 
@@ -146,8 +148,10 @@ Ordered milestones (may be reprioritized).
   `FlightConfig`) needs a human at the keyboard — it can't be tested headlessly.
 - Optional flight polish: mouse/gamepad input, an invert-pitch toggle, a
   "full stop" / "match speed" key, and a velocity vector marker on the HUD.
-- Visual polish: HDR camera + bloom so emissive stars/objects glow; a real
-  cockpit frame overlay; lower-poly or instanced stars if the field ever grows.
+- Sky: **swap the placeholder skybox for a real astronomical image** (DL-018) and
+  tune `SKYBOX_BRIGHTNESS`/bloom at the screen; decide fixed-vs-per-galaxy skies
+  (Phase 3). HDR + bloom on the cockpit camera is now in place.
+- Visual polish: a real cockpit frame overlay; emissive materials on objects.
 - macOS code-signing + notarization for distributable builds (CI produces an
   unsigned macOS binary today).
 - Decide whether to invest in a WebAssembly build target.

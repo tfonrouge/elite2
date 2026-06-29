@@ -14,8 +14,8 @@ mod wiring; // headless plugin-wiring smoke test (test builds only)
 use bevy::prelude::*;
 
 use plugins::{
-    camera::CameraPlugin, combat::CombatPlugin, core::CorePlugin, flight::FlightPlugin,
-    hud::HudPlugin, starfield::StarfieldPlugin, world::WorldPlugin,
+    camera::CameraPlugin, combat::CombatPlugin, core::CorePlugin, devshot::DevShotPlugin,
+    flight::FlightPlugin, hud::HudPlugin, world::WorldPlugin,
 };
 
 fn main() {
@@ -37,9 +37,9 @@ fn main() {
             FlightPlugin,
             CameraPlugin,
             WorldPlugin,
-            StarfieldPlugin,
             HudPlugin,
             CombatPlugin,
+            DevShotPlugin,
         ))
         .run();
 }

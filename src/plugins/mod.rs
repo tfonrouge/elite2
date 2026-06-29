@@ -15,7 +15,8 @@
 pub mod camera;
 pub mod combat;
 pub mod core;
+pub mod devshot;
 pub mod flight;
 pub mod hud;
-pub mod starfield;
+pub mod skybox;
 pub mod world;

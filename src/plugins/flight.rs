@@ -18,10 +18,10 @@ use bevy::prelude::*;
 /// Marker for the single player-controlled entity.
 ///
 /// **Phase 1 invariant: exactly one `Player` exists.** The camera, HUD, and
-/// starfield read it through `Single<.. With<Player>>`, which *silently skips*
-/// its system if there are zero or more than one (it does not panic). If a
-/// future phase introduces multiple controllable ships, those `Single` queries
-/// must be revisited.
+/// player-input/combat systems read it through `Single<.. With<Player>>`, which
+/// *silently skips* its system if there are zero or more than one (it does not
+/// panic). If a future phase introduces multiple controllable ships, those
+/// `Single` queries must be revisited.
 #[derive(Component)]
 pub struct Player;
 
@@ -117,7 +117,7 @@ pub struct YawAssist {
 /// Ordering for the flight pipeline. Controllers write each ship's
 /// [`FlightInput`] in `ReadInput`; the shared [`ship_movement`] integrator
 /// applies it in `Integrate`. Systems that *read* the player's `Transform` in the
-/// same frame (cockpit follow-readers, HUD, starfield) order themselves
+/// same frame (the HUD, the combat readout, combat) order themselves
 /// `.after(FlightSet::Integrate)` so they observe the current frame's motion.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FlightSet {

@@ -89,7 +89,10 @@ Decided by · Falsification condition**. Status is `ACCEPTED` until superseded.
   disorienting without more cockpit framing/reference → add a chase mode or a
   cockpit overlay, or make it toggleable.
 
-## DL-006 — Starfield = Fibonacci shell, follows player translation only · ACCEPTED (Phase 1)
+## DL-006 — Starfield = Fibonacci shell, follows player translation only · SUPERSEDED by DL-018 (Phase 1)
+
+> Superseded in Phase 2 by **DL-018** (a `Skybox` cubemap). The
+> richer-skies branch of this entry's own falsification condition was triggered.
 
 - **Context:** need a star backdrop that conveys rotation but not translation
   parallax (distant-star feel).
@@ -306,6 +309,30 @@ Decided by · Falsification condition**. Status is `ACCEPTED` until superseded.
 - **Retirement condition:** the debug command-spawn is removed when a real
   encounter-spawn system ships (procedural in-system or mission-scripted),
   regardless of phase — a named-successor trigger (cf. DL-009).
+
+## DL-018 — Sky background = `Skybox` cubemap · ACCEPTED (Phase 2, supersedes DL-006)
+
+- **Context:** the point-starfield (DL-006) drew uniform points; the Owner wants a
+  richer, more realistic deep-space background where turning the ship reveals
+  different sky (a band/galaxy in some directions). DL-006's own falsification
+  condition named this path ("we want richer skies → switch to a skybox cubemap").
+- **Alternatives considered:** a **procedural shader sky** (asset-free, seedable
+  per-galaxy, but stylised and the most engineering); an **enhanced point field**
+  (cheapest, still points); keeping DL-006.
+- **Decision:** render the background as a Bevy `Skybox` **cubemap** on the cockpit
+  camera, with **HDR + bloom** so stars glow. The camera is a child of the ship,
+  so rotation reveals the sky and translation correctly shows *no* parallax (more
+  physically correct than DL-006's translation-following shell).
+- **Image (sub-decision):** a runtime-generated **placeholder** cubemap now
+  (deterministic stars + a faint band, asset-free), to be swapped for a real
+  astronomical image later (a one-line change). The **fixed-vs-per-galaxy**
+  question (one sky vs a distinct sky per galaxy in Phase 3) is deferred.
+- **Decided by:** **user-approved** (options prompts: cubemap vs. procedural vs.
+  enhanced points → cubemap; asset path → placeholder-now-real-image-later).
+- **Falsification condition:** the single-cubemap approach proves too inflexible —
+  e.g. each of the 8 galaxies needs a distinct sky a fixed image can't provide —
+  → switch to a **procedural shader sky** (the per-seed option) or per-galaxy
+  cubemaps.
 
 ---
 

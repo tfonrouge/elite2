@@ -9,9 +9,10 @@ trade, fight, mine, or explore. Modern 3D rendering, faithful to the original's
 systems — procedural galaxy, supply/demand economy, real-time combat, ship
 progression, and combat/legal ranks. No forced story.
 
-> **Status:** Phase 1 (flight slice) complete — fly a ship from a first-person
-> cockpit through a starfield past a ring station and asteroids, with a live
-> HUD. See [`DESIGN.md`](DESIGN.md) for the roadmap and current phase.
+> **Status:** Phase 2 (combat) in progress — fly a first-person cockpit through a
+> deep-space skybox, fight pirates (lasers, shields/energy, no-yaw AI) past a ring
+> station and asteroids, with flight + combat HUDs. See [`DESIGN.md`](DESIGN.md)
+> for the roadmap and current phase.
 
 ## Prerequisites
 
@@ -45,7 +46,7 @@ cargo build --release
 
 A window titled **"Elite"** opens into a first-person cockpit. Ahead is a slowly
 rotating ring station with asteroids scattered nearby, all set against a
-procedural starfield, with a flight HUD in the top-left. Close the window to exit.
+deep-space skybox, with flight and combat HUDs. Close the window to exit.
 
 ### Controls
 
@@ -102,12 +103,13 @@ src/
 ├── main.rs            # thin entry point: window config + the list of plugins
 └── plugins/           # one Bevy Plugin per game system
     ├── mod.rs
-    ├── core.rs        # CorePlugin      — app-wide config (clear color, ...)
-    ├── flight.rs      # FlightPlugin    — player ship + damped-arcade flight model
-    ├── camera.rs      # CameraPlugin    — first-person cockpit camera
-    ├── world.rs       # WorldPlugin     — lighting + reference objects
-    ├── starfield.rs   # StarfieldPlugin — procedural starfield
-    └── hud.rs         # HudPlugin       — minimal flight HUD
+    ├── core.rs        # CorePlugin   — app-wide config (clear color, ...)
+    ├── flight.rs      # FlightPlugin — player ship + damped-arcade flight model
+    ├── camera.rs      # CameraPlugin — first-person cockpit camera (HDR + skybox)
+    ├── world.rs       # WorldPlugin  — lighting + reference objects
+    ├── skybox.rs      # deep-space background (Skybox cubemap)
+    ├── hud.rs         # HudPlugin    — minimal flight HUD
+    └── combat/        # CombatPlugin — weapons, damage, enemy AI, collision
 assets/                # runtime assets loaded by Bevy's AssetServer
 .github/workflows/     # cross-platform CI (Windows / macOS / Linux)
 ```
